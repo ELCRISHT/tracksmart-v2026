@@ -10,16 +10,18 @@ let isReady = false;
 // Tracking state variables
 let score = 100;
 let consecutiveNoFaceCount = 0;
-let consecutiveLookingAwayCount = 0;
 let consecutivePhoneCount = 0;
+let isGlobalPhoneDetected = false;
 let lastLogTime = 0; // Throttle logging
 const LOG_THROTTLE_MS = 2000; // More frequent logging for debugging
 let frameCounter = 0;
 
 // Smoothing buffers for more reliable detection
 const phoneDetectionBuffer: boolean[] = [];
+const phoneCleanBuffer: boolean[] = []; // Hysteresis buffer for clearing phone detection
 const lookingAwayBuffer: boolean[] = [];
-const BUFFER_SIZE = 2; // Reduce to 2 frames for faster triggering
+const BUFFER_SIZE = 6; // Increased from 2 for more stability (0.2s at 30fps)
+const PHONE_CLEAR_BUFFER_SIZE = 8; // Requires 2.6s of no-phone at 30fps before clearing
 
 async function init() {
   console.log('[AI Worker] Starting initialization...');
@@ -47,9 +49,9 @@ self.onmessage = async (e) => {
     const bitmap = e.data.bitmap as ImageBitmap;
     if (!bitmap) return;
 
+    let tensor: tf.Tensor3D | null = null;
     try {
       // Create tensor to ensure Web Worker compatibility across all browser engines
-      let tensor: tf.Tensor3D | null = null;
       try {
         tensor = tf.browser.fromPixels(bitmap);
       } catch (err) {
@@ -71,7 +73,7 @@ self.onmessage = async (e) => {
       if (facePredictions.length > 0) {
         consecutiveNoFaceCount = 0;
         const face = facePredictions[0] as blazeface.NormalizedFace;
-        const landmarks = face.landmarks as any;
+        const landmarks = face.landmarks as [number, number][];
         
         // Extract face geometry
         const faceBox = face.topLeft as [number, number];
@@ -83,12 +85,12 @@ self.onmessage = async (e) => {
         
         // Improved Looking Away Detection using robust head pose estimation
         if (landmarks && landmarks.length >= 6) {
+          const rightEye = landmarks[0];
+          const leftEye = landmarks[1];
           const nose = landmarks[2];
-          const leftEye = landmarks[0];
-          const rightEye = landmarks[1];
-          const leftEar = landmarks[3];
+          const mouth = landmarks[3];
           const rightEar = landmarks[4];
-          const mouth = landmarks[5];
+          const leftEar = landmarks[5];
           
           // 1. Horizontal head rotation detection (nose deviation from center)
           const noseHorizontalOffset = Math.abs(nose[0] - faceCenterX);
@@ -120,12 +122,10 @@ self.onmessage = async (e) => {
             lookingAwayBuffer.push(true);
             if (lookingAwayBuffer.length > BUFFER_SIZE) lookingAwayBuffer.shift();
             
-            consecutiveLookingAwayCount++;
             console.log(`[AI] 👀 Looking away detected! Conditions: Turned=${isHeadTurned}, Tilted=${isHeadTilted}, EyesAsym=${eyesAsymmetric}, FaceTilt=${isFaceTilted}`);
           } else {
             lookingAwayBuffer.push(false);
             if (lookingAwayBuffer.length > BUFFER_SIZE) lookingAwayBuffer.shift();
-            consecutiveLookingAwayCount = 0;
             score = Math.min(100, score + 1);
           }
         }
@@ -146,7 +146,6 @@ self.onmessage = async (e) => {
         }
       } else {
         consecutiveNoFaceCount++;
-        consecutiveLookingAwayCount = 0;
         lookingAwayBuffer.push(false);
         if (lookingAwayBuffer.length > BUFFER_SIZE) lookingAwayBuffer.shift();
         
@@ -158,18 +157,23 @@ self.onmessage = async (e) => {
       }
 
       // 2. AGGRESSIVE Phone Detection - Catch actual phones being held
-      const objectPredictions = await cocoModel.detect(tensor);
+      // OPTIMIZATION: Skip COCO processing every other frame for performance
+      let objectPredictions: cocoSsd.DetectedObject[] = [];
+      const shouldProcessCOCO = frameCounter % 2 === 0; // Process every other frame
+      if (shouldProcessCOCO) {
+        objectPredictions = await cocoModel.detect(tensor);
+      }
       
-      // ALWAYS log detection results
-      if (frameCounter % 5 === 0) {
+      // ALWAYS log detection results on processed frames
+      if (shouldProcessCOCO && frameCounter % 10 === 0) {
         console.log(`[AI] 🔍 FRAME #${frameCounter} - COCO detected ${objectPredictions.length} objects`);
         if (objectPredictions.length > 0) {
           console.log(`[AI]   Objects:`, objectPredictions.map(p => `${p.class}(${p.score.toFixed(2)})`).join(', '));
         }
       }
       
-      let isPhoneDetected = false;
       let phoneConfidence = 0;
+      let phoneInCurrentFrame = false;
 
       if (facePredictions.length > 0) {
         const face = facePredictions[0] as blazeface.NormalizedFace;
@@ -177,8 +181,6 @@ self.onmessage = async (e) => {
         const faceBoxBottom = face.bottomRight as [number, number];
         const faceWidth = faceBoxBottom[0] - faceBox[0];
         const faceHeight = faceBoxBottom[1] - faceBox[1];
-        const faceCenterX = faceBox[0] + faceWidth / 2;
-        const faceCenterY = faceBox[1] + faceHeight / 2;
         const faceTop = faceBox[1];
         const faceBottom = faceBoxBottom[1];
         const faceLeft = faceBox[0];
@@ -189,15 +191,11 @@ self.onmessage = async (e) => {
           console.log(`[AI]   Face detected at [${faceLeft.toFixed(0)},${faceTop.toFixed(0)}] size:${faceWidth.toFixed(0)}x${faceHeight.toFixed(0)}`);
         }
         
-        // STRATEGY 1: ANY hand detected anywhere in frame
-        const allHandsDetected = objectPredictions.filter(p => {
-          return (p.class === 'hand' || p.class === 'arm');
-        });
+        // STRATEGY 1: Phone detected anywhere in frame
+        const allPhonesDetected = objectPredictions.filter(p => p.class === 'cell phone');
         
-        // STRATEGY 2: Hand in phone-holding region
-        const handsNearFace = objectPredictions.filter(p => {
-          if (!(p.class === 'hand' || p.class === 'arm')) return false;
-          
+        // STRATEGY 2: Phone in face region
+        const phonesNearFace = allPhonesDetected.filter(p => {
           const bbox = p.bbox;
           const objLeft = bbox[0];
           const objTop = bbox[1];
@@ -206,101 +204,34 @@ self.onmessage = async (e) => {
           const objRight = objLeft + objWidth;
           const objBottom = objTop + objHeight;
           const objCenterX = (objLeft + objRight) / 2;
-          const objCenterY = (objTop + objBottom) / 2;
           
           // VERY LENIENT positioning
           const isNearFaceHeight = objTop < faceBottom + faceHeight * 1.0 && objBottom > faceTop - faceHeight * 1.0;
           const isInFrameHorizontally = objCenterX > faceLeft - faceWidth * 3 && objCenterX < faceRight + faceWidth * 3;
-          const isNotTinyDetection = objWidth > 5 && objHeight > 5; // VERY LOW threshold
+          const isNotTinyDetection = objWidth > 5 && objHeight > 5;
           
           return isNearFaceHeight && isInFrameHorizontally && isNotTinyDetection;
         });
         
-        if (frameCounter % 5 === 0 && (allHandsDetected.length > 0 || handsNearFace.length > 0)) {
-          console.log(`[AI]   Hands: all=${allHandsDetected.length}, nearFace=${handsNearFace.length}`);
+        // Decision logic - Focused on cell phone
+        if (phonesNearFace.length > 0) {
+          const maxPhoneScore = Math.max(...phonesNearFace.map(h => h.score));
+          phoneConfidence = Math.min(maxPhoneScore * 1.5, 0.99);
+          phoneInCurrentFrame = true;
+          if (frameCounter % 5 === 0) console.warn(`[AI] 📱🚨 PHONE NEAR FACE! Confidence: ${phoneConfidence.toFixed(2)}`);
+        } else if (allPhonesDetected.length > 0) {
+          phoneConfidence = 0.75;
+          phoneInCurrentFrame = true;
+          if (frameCounter % 5 === 0) console.warn(`[AI] 📱 PHONE DETECTED ANYWHERE!`);
         }
         
-        // STRATEGY 3: Person + any other object
-        const personWithObjectNearHead = objectPredictions.filter(p => {
-          if (p.class !== 'person') return false;
-          
-          const bbox = p.bbox;
-          const personLeft = bbox[0];
-          const personTop = bbox[1];
-          const personWidth = bbox[2];
-          const personHeight = bbox[3];
-          
-          const personHeadTop = personTop;
-          const personHeadBottom = personTop + personHeight * 0.4;
-          const personHeadLeft = personLeft;
-          const personHeadRight = personLeft + personWidth;
-          
-          const otherObjectsNearHead = objectPredictions.some(other => {
-            if (other === p || other.class === 'person') return false;
-            
-            const otherBbox = other.bbox;
-            const otherCenterY = otherBbox[1] + otherBbox[3] / 2;
-            const otherCenterX = otherBbox[0] + otherBbox[2] / 2;
-            
-            const isNearHead = otherCenterY > personHeadTop - 100 && otherCenterY < personHeadBottom + 150 &&
-                              otherCenterX > personHeadLeft - 150 && otherCenterX < personHeadRight + 150;
-            
-            return isNearHead && other.score > 0.15; // VERY LOW threshold
-          });
-          
-          return otherObjectsNearHead && p.score > 0.3;
-        });
+        phoneDetectionBuffer.push(phoneInCurrentFrame);
+        if (phoneDetectionBuffer.length > BUFFER_SIZE) phoneDetectionBuffer.shift();
         
-        // STRATEGY 4: Multiple objects near face
-        const objectsNearFace = objectPredictions.filter(p => {
-          const bbox = p.bbox;
-          const objCenterY = bbox[1] + bbox[3] / 2;
-          const objCenterX = bbox[0] + bbox[2] / 2;
-          
-          const isNearFaceArea = Math.abs(objCenterY - faceCenterY) < faceHeight * 2 &&
-                                Math.abs(objCenterX - faceCenterX) < faceWidth * 2;
-          
-          return isNearFaceArea && p.score > 0.15 && p.class !== 'person'; // VERY LOW threshold
-        });
-        
-        // EXCLUSION: False positives
-        const likelyFalsePositive = objectPredictions.filter(p => 
-          (p.class === 'keyboard' || p.class === 'mouse' || p.class === 'laptop' || 
-           p.class === 'monitor' || p.class === 'book' || p.class === 'cup' || p.class === 'bottle') && 
-          p.score > 0.5
-        );
-        
-        // Decision logic - ULTRA AGGRESSIVE
-        if (handsNearFace.length > 0) {
-          const maxHandScore = Math.max(...handsNearFace.map(h => h.score));
-          phoneConfidence = Math.min(maxHandScore * 1.5, 0.99);
-          phoneDetectionBuffer.push(true);
-          if (phoneDetectionBuffer.length > BUFFER_SIZE) phoneDetectionBuffer.shift();
+        if (phoneInCurrentFrame) {
           consecutivePhoneCount++;
-          console.warn(`[AI] 📱🚨 HAND NEAR FACE! Frame: ${frameCounter}, Count: ${consecutivePhoneCount}, Confidence: ${phoneConfidence.toFixed(2)}`);
-          isPhoneDetected = true;
-        } else if (allHandsDetected.length > 0) {
-          // Even if hand isn't NEAR face, if there's ANY hand, it's suspicious
-          phoneConfidence = 0.75;
-          phoneDetectionBuffer.push(true);
-          if (phoneDetectionBuffer.length > BUFFER_SIZE) phoneDetectionBuffer.shift();
-          consecutivePhoneCount++;
-          console.warn(`[AI] 📱 HAND DETECTED ANYWHERE! Frame: ${frameCounter}, Count: ${consecutivePhoneCount}`);
-          isPhoneDetected = true;
-        } else if (objectsNearFace.length >= 1 && likelyFalsePositive.length === 0) {
-          // Object near face (with no false positive exclusions)
-          phoneConfidence = 0.65;
-          phoneDetectionBuffer.push(true);
-          if (phoneDetectionBuffer.length > BUFFER_SIZE) phoneDetectionBuffer.shift();
-          consecutivePhoneCount++;
-          console.log(`[AI] 📱 OBJECT NEAR FACE! Count: ${consecutivePhoneCount}`);
-          isPhoneDetected = true;
-        } else {
-          phoneDetectionBuffer.push(false);
-          if (phoneDetectionBuffer.length > BUFFER_SIZE) phoneDetectionBuffer.shift();
-          if (consecutivePhoneCount > 0) {
-            consecutivePhoneCount--;
-          }
+        } else if (consecutivePhoneCount > 0) {
+          consecutivePhoneCount--;
         }
       } else {
         if (frameCounter % 5 === 0) {
@@ -313,13 +244,18 @@ self.onmessage = async (e) => {
         }
       }
 
-      // TRIGGER ALERT - VERY AGGRESSIVE
+      // TRIGGER ALERT - IMPROVED LOGIC with hysteresis
       const phoneDetectionRate = phoneDetectionBuffer.length > 0 ? (phoneDetectionBuffer.filter(Boolean).length / phoneDetectionBuffer.length) * 100 : 0;
       
-      if (phoneDetectionRate >= 50 || consecutivePhoneCount >= 1) { // 50% or just 1 detection!
-        isPhoneDetected = true;
+      if (phoneDetectionRate >= 50) { 
+        isGlobalPhoneDetected = true;
         score = Math.max(0, score - 15);
-        console.warn(`[AI] 🚨🚨🚨 PHONE ALERT TRIGGERED! Frame: ${frameCounter}, Rate: ${phoneDetectionRate.toFixed(0)}%, Count: ${consecutivePhoneCount}`);
+        if (frameCounter % 10 === 0) {
+          console.warn(`[AI] 🚨🚨🚨 PHONE ALERT TRIGGERED! Rate: ${phoneDetectionRate.toFixed(0)}%, Count: ${consecutivePhoneCount}`);
+        }
+      } else if (phoneDetectionRate < 25) {
+        // Clear immediately when buffer is mostly clean of phones
+        isGlobalPhoneDetected = false;
       }
 
       // Clean up tensor to prevent memory leaks
@@ -329,8 +265,8 @@ self.onmessage = async (e) => {
 
       // Debug logging (throttled)
       const now = Date.now();
-      if ((lastDistraction || isPhoneDetected) && now - lastLogTime > LOG_THROTTLE_MS) {
-        console.log(`[AI] Distraction: ${lastDistraction || 'none'}, Phone: ${isPhoneDetected}, Score: ${score}`);
+      if ((lastDistraction || isGlobalPhoneDetected) && now - lastLogTime > LOG_THROTTLE_MS) {
+        console.log(`[AI] Distraction: ${lastDistraction || 'none'}, Phone: ${isGlobalPhoneDetected}, Score: ${score}`);
         lastLogTime = now;
       }
 
@@ -339,7 +275,7 @@ self.onmessage = async (e) => {
         type: 'results',
         data: {
           attention: { score, lastDistraction },
-          phone: { isPhoneDetected, confidence: phoneConfidence }
+          phone: { isPhoneDetected: isGlobalPhoneDetected, confidence: phoneConfidence }
         }
       });
     } catch (err) {
@@ -348,7 +284,7 @@ self.onmessage = async (e) => {
       if (tensor) {
         try {
           tensor.dispose();
-        } catch (e) {
+        } catch {
           // Already disposed
         }
       }

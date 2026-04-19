@@ -13,10 +13,53 @@ export const WarningPanel: React.FC<WarningPanelProps> = ({ score, myIdentity })
   const [activeWarning, setActiveWarning] = useState<string | null>(null);
   const [warningCount, setWarningCount] = useState(0);
 
+  // Play a beep sound when a warning appears
+  useEffect(() => {
+    if (activeWarning) {
+      try {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioContextClass) return;
+        
+        const audioCtx = new AudioContextClass();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        
+        oscillator.type = 'sine';
+        oscillator.frequency.value = 800; // 800 Hz beep
+        
+        const now = audioCtx.currentTime;
+        
+        // First beep: ON at 0s, OFF at 0.15s
+        gainNode.gain.setValueAtTime(0.1, now);
+        gainNode.gain.setValueAtTime(0, now + 0.15);
+        
+        // Second beep: ON at 0.3s, OFF at 0.45s
+        gainNode.gain.setValueAtTime(0.1, now + 0.3);
+        gainNode.gain.setValueAtTime(0, now + 0.45);
+        
+        oscillator.start(now);
+        oscillator.stop(now + 0.5);
+        
+        setTimeout(() => {
+          try {
+            audioCtx.close();
+          } catch (e) {}
+        }, 600); // Wait until done to close context
+      } catch (e) {
+        console.warn('Audio playback failed', e);
+      }
+    }
+  }, [activeWarning]);
+
   useEffect(() => {
     const handleStudentAlert = (data: any) => {
+      if (myIdentity && data.studentId !== myIdentity) return;
+
       console.log('[WarningPanel] Received student_alert:', data.alertType, data);
-      
+
       if (data.alertType === 'phone_detected') {
         setActiveWarning("📱 Mobile Device Detected! Please put your phone away.");
         console.warn('[WarningPanel] 🚨 PHONE DETECTED');
@@ -31,9 +74,15 @@ export const WarningPanel: React.FC<WarningPanelProps> = ({ score, myIdentity })
           setActiveWarning("Face Not Detected! Stay in frame please.");
           console.warn('[WarningPanel] NO FACE DETECTED');
         }
+      } else if (data.alertType === 'distraction_cleared') {
+        console.log('[WarningPanel] ✅ Distraction cleared');
+        setActiveWarning(null);
       } else if (data.alertType === 'tab_switch') {
         setActiveWarning("Tab Switch Detected! Stay focused on this window.");
         console.warn('[WarningPanel] TAB SWITCH DETECTED');
+      } else if (data.alertType === 'tab_return') {
+        console.log('[WarningPanel] ✅ Tab returned');
+        setActiveWarning(null);
       }
       
       if (data.warningCount !== undefined) {

@@ -112,7 +112,10 @@ const VideoGrid: React.FC<VideoGridProps> = ({ isTeacher }) => {
     try {
       aiWorker = new Worker(new URL('../lib/ai/aiWorker.ts', import.meta.url), { type: 'module' });
       let prevPhoneDetected = false;
+      let prevDistraction: string | null = null;
       let frameCount = 0;
+      let lastPhoneDetectedTime = 0; // Debounce: prevent rapid re-triggering of phone_detected
+      const PHONE_DETECTION_DEBOUNCE_MS = 1000; // Wait 1 second before re-sending phone_detected
       
       aiWorker.onerror = (err) => {
         console.error('[AI] Worker error:', err.message);
@@ -127,18 +130,27 @@ const VideoGrid: React.FC<VideoGridProps> = ({ isTeacher }) => {
           
           socket.emit('ts:attention_update', { score: attention.score, timestamp: Date.now() });
           
-          if (attention.lastDistraction) {
+          if (attention.lastDistraction && attention.lastDistraction !== prevDistraction) {
             socket.emit('ts:distraction', { type: attention.lastDistraction, timestamp: Date.now() });
+            prevDistraction = attention.lastDistraction;
+          } else if (!attention.lastDistraction && prevDistraction) {
+            socket.emit('ts:distraction_cleared', { timestamp: Date.now() });
+            prevDistraction = null;
           }
           
           if (phone.isPhoneDetected && !prevPhoneDetected) {
-            console.warn('[AI] 📱 PHONE DETECTED!');
-            socket.emit('ts:phone_detected', { confidence: phone.confidence, timestamp: Date.now() });
+            const now = Date.now();
+            if (now - lastPhoneDetectedTime > PHONE_DETECTION_DEBOUNCE_MS) {
+              console.warn('[AI] 📱 PHONE DETECTED!');
+              socket.emit('ts:phone_detected', { confidence: phone.confidence, timestamp: now });
+              lastPhoneDetectedTime = now;
+            }
             prevPhoneDetected = true;
           } else if (!phone.isPhoneDetected && prevPhoneDetected) {
             console.log('[AI] 📱 Phone cleared');
             socket.emit('ts:phone_cleared', { timestamp: Date.now() });
             prevPhoneDetected = false;
+            lastPhoneDetectedTime = 0; // Reset debounce on clear
           }
           
           frameCount++;

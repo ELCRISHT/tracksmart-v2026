@@ -149,6 +149,11 @@ app.get('/api/livekit/token', async (req, res) => {
 // Real-time In-memory State for Roster Sync
 const participantsByRoom = new Map<string, Record<string, any>>();
 
+// Track phone detection timeouts for auto-clearing stale alerts
+// Map format: "sessionId:studentId" -> timeoutId
+const phoneDetectionTimeouts = new Map<string, NodeJS.Timeout>();
+const PHONE_AUTO_CLEAR_TIMEOUT_MS = 30000; // 30 seconds - auto-clear if not manually cleared
+
 io.on('connection', (socket) => {
   console.log(`🔌 [Socket] New connection: ${socket.id}`);
   
@@ -252,6 +257,24 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('ts:distraction_cleared', (data) => {
+    const { sessionId, studentId } = socket.data;
+    if (sessionId) {
+      console.log(`✅ [Distraction Cleared] ${studentId}`);
+      io.to(sessionId).emit('ts:student_alert', { studentId, alertType: 'distraction_cleared', ...data });
+      logEvent(sessionId, studentId, 'distraction_cleared', data);
+    }
+  });
+
+  socket.on('ts:complied', (data) => {
+    const { sessionId, studentId } = socket.data;
+    if (sessionId) {
+      console.log(`👍 [Complied] ${studentId}`);
+      io.to(sessionId).emit('ts:student_alert', { studentId, alertType: 'complied', ...data });
+      logEvent(sessionId, studentId, 'complied', data);
+    }
+  });
+
   socket.on('ts:phone_detected', (data) => {
     const { sessionId, studentId } = socket.data;
     if (sessionId) {
@@ -263,6 +286,22 @@ io.on('connection', (socket) => {
       // Broadcast to ALL in room (including self) so student sees their own alert
       io.to(sessionId).emit('ts:student_alert', { studentId, alertType: 'phone_detected', warningCount: room?.[studentId]?.warningCount || 0, ...data });
       logEvent(sessionId, studentId, 'phone_detected', data);
+      
+      // Set auto-clear timeout (failsafe in case phone_cleared event is missed)
+      const timeoutKey = `${sessionId}:${studentId}`;
+      const existingTimeout = phoneDetectionTimeouts.get(timeoutKey);
+      if (existingTimeout) {
+        clearTimeout(existingTimeout); // Clear old timeout
+      }
+      
+      const timeout = setTimeout(() => {
+        console.log(`⏱️ [Phone Auto-Clear] Auto-clearing phone alert for ${studentId} after ${PHONE_AUTO_CLEAR_TIMEOUT_MS}ms of no clear event`);
+        io.to(sessionId).emit('ts:student_alert', { studentId, alertType: 'phone_cleared' });
+        logEvent(sessionId, studentId, 'phone_cleared_timeout', { reason: 'auto-clear timeout' });
+        phoneDetectionTimeouts.delete(timeoutKey);
+      }, PHONE_AUTO_CLEAR_TIMEOUT_MS);
+      
+      phoneDetectionTimeouts.set(timeoutKey, timeout);
     }
   });
 
@@ -273,6 +312,14 @@ io.on('connection', (socket) => {
       // Broadcast to ALL in room (including self)
       io.to(sessionId).emit('ts:student_alert', { studentId, alertType: 'phone_cleared', ...data });
       logEvent(sessionId, studentId, 'phone_cleared', data);
+      
+      // Clear the auto-clear timeout since manual clear was sent
+      const timeoutKey = `${sessionId}:${studentId}`;
+      const timeout = phoneDetectionTimeouts.get(timeoutKey);
+      if (timeout) {
+        clearTimeout(timeout);
+        phoneDetectionTimeouts.delete(timeoutKey);
+      }
     }
   });
 
@@ -402,6 +449,14 @@ io.on('connection', (socket) => {
       if (room && room[studentId]) {
         delete room[studentId];
         if (Object.keys(room).length === 0) participantsByRoom.delete(sessionId);
+      }
+      
+      // Clean up any pending phone detection timeouts
+      const timeoutKey = `${sessionId}:${studentId}`;
+      const timeout = phoneDetectionTimeouts.get(timeoutKey);
+      if (timeout) {
+        clearTimeout(timeout);
+        phoneDetectionTimeouts.delete(timeoutKey);
       }
       
       // Update participant left_at in Firestore

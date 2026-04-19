@@ -25,8 +25,12 @@ interface StudentState {
   warningCount: number;
 }
 
+import { IssueWarningModal } from '../components/IssueWarningModal';
+
 const SessionControls = () => {
   const { isMicrophoneEnabled, isCameraEnabled, isScreenShareEnabled, localParticipant } = useLocalParticipant();
+  // ... other hooks and states
+  const [warningModalStudent, setWarningModalStudent] = useState<StudentState | null>(null);
 
   const toggleMic = async () => {
     await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled);
@@ -243,10 +247,16 @@ const Session: React.FC = () => {
           const nextState = { ...prev[data.studentId] };
           
           if (data.alertType === 'distraction') nextState.lastDistraction = data.type;
+          else if (data.alertType === 'distraction_cleared') nextState.lastDistraction = null;
           else if (data.alertType === 'phone_detected') nextState.phoneDetected = true;
           else if (data.alertType === 'phone_cleared') nextState.phoneDetected = false;
           else if (data.alertType === 'tab_switch') nextState.tabHidden = true;
           else if (data.alertType === 'tab_return') nextState.tabHidden = false;
+          else if (data.alertType === 'complied') {
+            nextState.phoneDetected = false;
+            nextState.lastDistraction = null;
+            nextState.tabHidden = false;
+          }
           
           if (data.warningCount !== undefined) {
             nextState.warningCount = data.warningCount;
@@ -417,17 +427,20 @@ const Session: React.FC = () => {
     }
   };
 
-  const handleIssueWarning = (student: StudentState) => {
-    const message = prompt(`Enter warning message for ${student.name}:`, 'Please stay focused on the class.');
-    if (message) {
-      socket.emit('ts:issue_warning', { 
-        studentSocketId: student.socketId,
-        studentId: student.id,
-        message 
-      });
-    }
+  const handleIssueWarningClick = (student: StudentState) => {
+    setWarningModalStudent(student);
   };
 
+  const handleIssueWarningSubmit = (message: string) => {
+    if (warningModalStudent && message) {
+      socket.emit('ts:issue_warning', {
+        studentSocketId: warningModalStudent.socketId,
+        studentId: warningModalStudent.id,
+        message
+      });
+      setWarningModalStudent(null);
+    }
+  };
   // Sidebar tab switcher shared component
   const SidebarTabs = ({ tabs }: { tabs: { key: string; label: string; icon: React.ReactNode }[] }) => (
     <div className="flex border-b border-slate-200 dark:border-slate-800 shrink-0">
@@ -569,7 +582,7 @@ const Session: React.FC = () => {
                         </div>
                         {isCritical && (
                           <button 
-                            onClick={() => handleIssueWarning(student)}
+                            onClick={() => handleIssueWarningClick(student)}
                             className="w-full mt-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-bold rounded flex items-center justify-center gap-1 transition-colors"
                           >
                             Issue Strike Warning
@@ -617,6 +630,15 @@ const Session: React.FC = () => {
           </>
         )}
       </div>
+
+      {warningModalStudent && (
+        <IssueWarningModal
+          studentName={warningModalStudent.name}
+          isOpen={!!warningModalStudent}
+          onClose={() => setWarningModalStudent(null)}
+          onSubmit={handleIssueWarningSubmit}
+        />
+      )}
     </LiveKitRoom>
   );
 };
