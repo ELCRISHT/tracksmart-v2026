@@ -490,6 +490,16 @@ io.on('connection', (socket) => {
   });
 });
 
+/* --- HEALTH CHECK --- */
+app.get('/', (req: Request, res: Response) => {
+  res.json({
+    status: 'ok',
+    message: 'TrackSmart Backend is running',
+    firebase: firebaseReady ? 'initialized' : 'not initialized',
+    timestamp: new Date().toISOString()
+  });
+});
+
 const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
