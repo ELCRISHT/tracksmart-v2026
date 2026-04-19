@@ -132,9 +132,11 @@ const Session: React.FC = () => {
   // Main session effect — IMPORTANT: myIdentity is intentionally excluded from deps
   // to prevent fetchToken() from re-running after identity is set.
   useEffect(() => {
+    const socketUrl = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
+    
     // 1. Connect to socket with logging
     if (!socket.connected) {
-      console.info('📡 [Socket] Attempting connection to 3001...');
+      console.info('📡 [Socket] Attempting connection to:', socketUrl);
       socket.connect();
     }
 
@@ -170,7 +172,6 @@ const Session: React.FC = () => {
           }
         }
 
-        const socketUrl = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
         const fetchResponsePromise = fetch(`${socketUrl}/api/livekit/token?room=${code}&role=${role}`, {
           headers: { 'Authorization': authHeader }
         });
