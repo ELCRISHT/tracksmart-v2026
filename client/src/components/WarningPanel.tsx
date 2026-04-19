@@ -46,7 +46,9 @@ export const WarningPanel: React.FC<WarningPanelProps> = ({ score, myIdentity })
         setTimeout(() => {
           try {
             audioCtx.close();
-          } catch (e) {}
+          } catch (err) {
+            console.warn('Failed to close AudioContext', err);
+          }
         }, 600); // Wait until done to close context
       } catch (e) {
         console.warn('Audio playback failed', e);
@@ -64,7 +66,7 @@ export const WarningPanel: React.FC<WarningPanelProps> = ({ score, myIdentity })
         setActiveWarning("📱 Mobile Device Detected! Please put your phone away.");
         console.warn('[WarningPanel] 🚨 PHONE DETECTED');
       } else if (data.alertType === 'phone_cleared') {
-        console.log('[WarningPanel] ✅ Phone cleared');
+        console.log('[WarningPanel] Phone cleared');
         setActiveWarning(null);
       } else if (data.alertType === 'distraction') {
         if (data.type === 'looking_away') {
@@ -75,13 +77,13 @@ export const WarningPanel: React.FC<WarningPanelProps> = ({ score, myIdentity })
           console.warn('[WarningPanel] NO FACE DETECTED');
         }
       } else if (data.alertType === 'distraction_cleared') {
-        console.log('[WarningPanel] ✅ Distraction cleared');
+        console.log('[WarningPanel] Distraction cleared');
         setActiveWarning(null);
       } else if (data.alertType === 'tab_switch') {
         setActiveWarning("Tab Switch Detected! Stay focused on this window.");
         console.warn('[WarningPanel] TAB SWITCH DETECTED');
       } else if (data.alertType === 'tab_return') {
-        console.log('[WarningPanel] ✅ Tab returned');
+        console.log('[WarningPanel]  Tab returned');
         setActiveWarning(null);
       }
       
@@ -160,7 +162,7 @@ export const WarningPanel: React.FC<WarningPanelProps> = ({ score, myIdentity })
       {/* Active Warning Action (If any) */}
       {isWarning && (
         <div className="bg-track-alert-amber rounded-xl p-4 mb-4 text-slate-900 shadow-lg animate-pulse border-2 border-amber-400">
-          <p className="font-bold text-sm mb-3">⚠️ {activeWarning}</p>
+          <p className="font-bold text-sm mb-3"> {activeWarning}</p>
           <button 
             onClick={handleCompliance}
             className="w-full bg-slate-900 hover:bg-slate-800 text-amber-400 font-bold py-2 rounded-lg transition-colors text-sm"

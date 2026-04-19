@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Video, Clock, LayoutDashboard, LogOut, Shield, ChevronDown, Link, Copy, Check, X, Settings, Trash2 } from 'lucide-react';
+import { Plus, Video, Clock, LogOut, Shield, ChevronDown, Link, Copy, Check, X, Settings, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, addDoc, deleteDoc, doc } from 'firebase/firestore';
@@ -182,8 +182,8 @@ const Dashboard: React.FC = () => {
       {/* Navbar */}
       <nav className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-10 px-6 py-4 flex justify-between items-center shadow-sm">
         <div className="flex items-center gap-2">
-          <div className="w-10 h-10 bg-track-navy dark:bg-slate-800 rounded-xl flex items-center justify-center shadow-inner">
-            <LayoutDashboard className="text-white w-6 h-6" />
+          <div className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center shadow-inner">
+            <img src="/tracksmart.jpg" alt="TrackSmart" className="w-full h-full object-cover" />
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-track-navy dark:text-slate-100">Dashboard</h1>

@@ -2,14 +2,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Hash, 
-  Loader2, 
-  Clock, 
-  BookOpen, 
-  LogOut,
-  User as UserIcon,
-  ChevronRight,
-  Settings
+    Hash, 
+    Loader2, 
+    Clock, 
+    LogOut,
+    User as UserIcon,
+    ChevronRight,
+    Settings
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
@@ -133,8 +132,8 @@ const StudentDashboard: React.FC = () => {
       {/* Navbar */}
       <nav className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-6 py-4 flex justify-between items-center sticky top-0 z-20 shadow-sm">
         <div className="flex items-center gap-2">
-          <div className="w-10 h-10 bg-track-teal rounded-xl flex items-center justify-center shadow-lg shadow-track-teal/20">
-            <BookOpen className="text-white w-6 h-6" />
+          <div className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center shadow-lg shadow-track-teal/20">
+            <img src="/tracksmart.jpg" alt="TrackSmart" className="w-full h-full object-cover" />
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight text-track-navy dark:text-slate-100">Student Dashboard</h1>

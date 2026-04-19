@@ -43,31 +43,31 @@ const VideoGrid: React.FC<VideoGridProps> = ({ isTeacher }) => {
       
       // Attach track
       cameraTrack.attach(videoElement);
-      console.log('[VideoGrid] ✅ Track attached. Calling play()...');
+      console.log('[VideoGrid] Track attached. Calling play()...');
       
       // Add comprehensive event listeners
       const onLoadedMetadata = () => {
-        console.log(`[VideoGrid] 📺 loadedmetadata: dims=${videoElement.videoWidth}x${videoElement.videoHeight}`);
+        console.log(`[VideoGrid] loadedmetadata: dims=${videoElement.videoWidth}x${videoElement.videoHeight}`);
       };
       
       const onCanPlay = () => {
-        console.log(`[VideoGrid] 📺 canplay: readyState=${videoElement.readyState}`);
+        console.log(`[VideoGrid] canplay: readyState=${videoElement.readyState}`);
       };
       
       const onPlaying = () => {
-        console.log(`[VideoGrid] 🎬 playing: readyState=${videoElement.readyState}`);
+        console.log(`[VideoGrid] playing: readyState=${videoElement.readyState}`);
       };
       
       const onPlay = () => {
-        console.log(`[VideoGrid] 🎬 play event fired`);
+        console.log(`[VideoGrid] play event fired`);
       };
       
       const onTimeUpdate = () => {
-        console.log(`[VideoGrid] ⏱️ timeupdate: currentTime=${videoElement.currentTime}, readyState=${videoElement.readyState}`);
+        console.log(`[VideoGrid] timeupdate: currentTime=${videoElement.currentTime}, readyState=${videoElement.readyState}`);
       };
       
       const onError = (err: any) => {
-        console.error('[VideoGrid] ❌ Video error:', err);
+        console.error('[VideoGrid]  Video error:', err);
       };
       
       videoElement.addEventListener('loadedmetadata', onLoadedMetadata);
@@ -79,8 +79,8 @@ const VideoGrid: React.FC<VideoGridProps> = ({ isTeacher }) => {
       
       // Try to play
       videoElement.play()
-        .then(() => console.log('[VideoGrid] ✅ play() succeeded'))
-        .catch(err => console.error('[VideoGrid] ❌ play() failed:', err));
+        .then(() => console.log('[VideoGrid]  play() succeeded'))
+        .catch(err => console.error('[VideoGrid] play() failed:', err));
       
       return () => {
         videoElement.removeEventListener('loadedmetadata', onLoadedMetadata);
@@ -94,7 +94,7 @@ const VideoGrid: React.FC<VideoGridProps> = ({ isTeacher }) => {
         }
       };
     } else {
-      console.warn('[VideoGrid] ❌ Cannot attach: track=' + !!cameraTrack + ' video=' + !!videoElement);
+      console.warn('[VideoGrid]  Cannot attach: track=' + !!cameraTrack + ' video=' + !!videoElement);
     }
   }, [localParticipant]);
 
@@ -124,7 +124,7 @@ const VideoGrid: React.FC<VideoGridProps> = ({ isTeacher }) => {
       aiWorker.onmessage = (e) => {
         if (e.data.type === 'ready') {
           isWorkerReady = true;
-          console.log('[AI] ✅ Worker initialized');
+          console.log('[AI]  Worker initialized');
         } else if (e.data.type === 'results') {
           const { attention, phone } = e.data.data;
           
@@ -251,10 +251,10 @@ const VideoGrid: React.FC<VideoGridProps> = ({ isTeacher }) => {
     <div className="flex-1 flex flex-col w-full h-full relative overflow-hidden">
       {isTeacher ? (
         // Teacher View: Grid of all students + self
-        <div className="w-full h-full p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto content-start bg-slate-950">
+        <div className="w-full h-full p-4 sm:p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 overflow-y-auto content-start bg-slate-950">
           {allTracks.length > 0 ? (
             allTracks.map((trackRef) => (
-              <div key={`${trackRef.participant.identity}-${trackRef.source}`} className={`bg-slate-900 rounded-2xl overflow-hidden aspect-video relative shadow-2xl border transition-all hover:border-slate-700 ${trackRef.source === Track.Source.ScreenShare ? 'border-track-teal/50 ring-2 ring-track-teal/20' : 'border-slate-800'}`}>
+              <div key={`${trackRef.participant.identity}-${trackRef.source}`} className={`bg-slate-900 rounded-2xl overflow-hidden aspect-video md:aspect-auto relative shadow-2xl border transition-all hover:border-slate-700 min-h-35 md:min-h-55 ${trackRef.source === Track.Source.ScreenShare ? 'border-track-teal/50 ring-2 ring-track-teal/20' : 'border-slate-800'}`}>
                 <VideoTrack 
                   trackRef={trackRef as any} 
                   className={`w-full h-full ${trackRef.source === Track.Source.ScreenShare ? 'object-contain bg-black' : 'object-cover'}`}
@@ -327,7 +327,7 @@ const VideoGrid: React.FC<VideoGridProps> = ({ isTeacher }) => {
           <div className="absolute top-3 right-3 md:top-8 md:right-8 z-20">
             <div className="bg-slate-950/90 px-3 md:px-4 py-2 rounded-full text-[10px] md:text-[11px] font-bold backdrop-blur-md flex items-center gap-2 md:gap-2.5 border border-slate-800/60 shadow-lg md:shadow-xl text-slate-300 whitespace-nowrap">
                <span className="w-1.5 md:w-2 h-1.5 md:h-2 rounded-full bg-track-alert-amber animate-pulse shadow-[0_0_8px_#F59E0B] shrink-0"></span>
-               <span className="hidden sm:inline">Real-time Monitoring is Active</span>
+               <span className="hidden sm:inline">Monitoring is Active</span>
                <span className="sm:hidden">Monitoring Active</span>
             </div>
           </div>

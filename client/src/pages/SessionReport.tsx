@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { FileText, Download, Users, AlertTriangle, ArrowLeft, Loader2 } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import jsPDF from 'jspdf';
 
 interface SessionData {
   title: string;
@@ -256,8 +257,100 @@ const SessionReport: React.FC = () => {
   };
 
   const exportSummaryPDF = () => {
-    // Create a simple text-based PDF export (fallback if PDF library not available)
-    exportSummaryCSV();
+    try {
+      const doc = new jsPDF();
+      const title = 'TrackSmart Summary Report';
+      doc.setFontSize(16);
+      doc.text(title, 14, 20);
+
+      const timestamp = session?.created_at 
+        ? new Date(session.created_at.toMillis ? session.created_at.toMillis() : session.created_at).toLocaleString()
+        : new Date().toLocaleString();
+
+      doc.setFontSize(11);
+      doc.text(`Session: ${session?.title || 'Unknown'}`, 14, 34);
+      doc.text(`Date: ${timestamp}`, 14, 46);
+      doc.text(`Room Code: ${session?.room_code || id}`, 14, 58);
+
+      let y = 76;
+      doc.setFontSize(11);
+      doc.text('Student', 14, y);
+      doc.text('Avg', 110, y);
+      doc.text('Time Away', 140, y);
+      doc.text('Warnings', 170, y);
+      y += 8;
+
+      reports.forEach((r) => {
+        if (y > 270) {
+          doc.addPage();
+          y = 20;
+        }
+        doc.text(r.name, 14, y);
+        doc.text(`${r.avgScore}%`, 110, y);
+        const awayText = r.timeAwayMs > 60000 ? `${Math.floor(r.timeAwayMs / 60000)}m ${Math.round((r.timeAwayMs % 60000) / 1000)}s` : `${Math.round(r.timeAwayMs / 1000)}s`;
+        doc.text(awayText, 140, y);
+        doc.text(String(r.warnings), 170, y);
+        y += 8;
+      });
+
+      doc.save(`TrackSmart_Summary_Report_${session?.room_code || id}.pdf`);
+    } catch (err) {
+      console.error('Failed to generate PDF:', err);
+      // fallback
+      exportSummaryCSV();
+    }
+  };
+
+  const exportIndividualPDF = (student: StudentReport) => {
+    try {
+      const doc = new jsPDF();
+      const title = 'TrackSmart Individual Student Report';
+      doc.setFontSize(16);
+      doc.text(title, 14, 20);
+
+      const timestamp = session?.created_at 
+        ? new Date(session.created_at.toMillis ? session.created_at.toMillis() : session.created_at).toLocaleString()
+        : new Date().toLocaleString();
+
+      doc.setFontSize(11);
+      doc.text(`Session: ${session?.title || 'Unknown'}`, 14, 34);
+      doc.text(`Date: ${timestamp}`, 14, 46);
+      doc.text(`Student: ${student.name}`, 14, 58);
+      doc.text(`Room Code: ${session?.room_code || id}`, 14, 70);
+
+      let y = 90;
+      doc.setFontSize(12);
+      doc.text('Performance Summary', 14, y);
+      y += 10;
+      doc.setFontSize(11);
+      doc.text(`Average Attention Score: ${student.avgScore}%`, 14, y); y += 8;
+      doc.text(`Total Warnings Issued: ${student.warnings}`, 14, y); y += 8;
+      const awayText = student.timeAwayMs > 60000 ? `${Math.floor(student.timeAwayMs / 60000)}m ${Math.round((student.timeAwayMs % 60000) / 1000)}s` : `${Math.round(student.timeAwayMs / 1000)}s`;
+      doc.text(`Total Time Away: ${awayText}`, 14, y); y += 12;
+
+      doc.setFontSize(12);
+      doc.text('Detailed Event Log', 14, y); y += 10;
+      doc.setFontSize(10);
+
+      if (student.events && student.events.length > 0) {
+        student.events.forEach(event => {
+          const evTime = event.timestamp?.toMillis ? new Date(event.timestamp.toMillis()).toLocaleString() : new Date(event.timestamp).toLocaleString();
+          const line = `${evTime} — ${event.type}${event.details ? ` — ${event.details}` : ''}`;
+          const split = doc.splitTextToSize(line, 180);
+          if (y + (split.length * 6) > 280) { doc.addPage(); y = 20; }
+          doc.text(split, 14, y);
+          y += split.length * 6;
+        });
+      } else {
+        doc.text('No events recorded.', 14, y);
+      }
+
+      const safeName = student.name.replace(/[^a-z0-9_-]/gi, '_');
+      doc.save(`TrackSmart_Report_${safeName}_${session?.room_code || id}.pdf`);
+    } catch (err) {
+      console.error('Failed to generate individual PDF:', err);
+      exportIndividualReport(student);
+    }
   };
 
   if (loading) {
@@ -290,13 +383,22 @@ const SessionReport: React.FC = () => {
               {session?.created_at && new Date(session.created_at.toMillis ? session.created_at.toMillis() : session.created_at).toLocaleString()}
             </p>
           </div>
-          <button 
-            onClick={exportSummaryCSV}
-            className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-lg font-medium hover:bg-slate-50 transition-colors shadow-sm text-sm"
-          >
-            <Download className="w-4 h-4" />
-            Export Summary
-          </button>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={exportSummaryCSV}
+              className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-lg font-medium hover:bg-slate-50 transition-colors shadow-sm text-sm"
+            >
+              <Download className="w-4 h-4" />
+              Export CSV
+            </button>
+            <button 
+              onClick={exportSummaryPDF}
+              className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-lg font-medium hover:bg-slate-50 transition-colors shadow-sm text-sm"
+            >
+              <FileText className="w-4 h-4" />
+              Export PDF
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -369,14 +471,22 @@ const SessionReport: React.FC = () => {
                     {report.warnings > 0 && <AlertTriangle className="w-3.5 h-3.5" />} 
                     {report.warnings}
                   </td>
-                  <td className="p-4 text-center">
+                  <td className="p-4 text-center space-x-2">
                     <button
                       onClick={() => exportIndividualReport(report)}
                       className="inline-flex items-center gap-1.5 text-track-teal hover:text-track-teal/80 transition-colors text-sm font-medium"
-                      title={`Download report for ${report.name}`}
+                      title={`Download CSV report for ${report.name}`}
                     >
                       <Download className="w-4 h-4" />
-                      <span className="hidden sm:inline">Download</span>
+                      <span className="hidden sm:inline">CSV</span>
+                    </button>
+                    <button
+                      onClick={() => exportIndividualPDF(report)}
+                      className="inline-flex items-center gap-1.5 text-track-navy hover:text-track-navy/80 transition-colors text-sm font-medium"
+                      title={`Download PDF report for ${report.name}`}
+                    >
+                      <FileText className="w-4 h-4" />
+                      <span className="hidden sm:inline">PDF</span>
                     </button>
                   </td>
                 </tr>

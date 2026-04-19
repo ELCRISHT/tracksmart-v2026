@@ -17,11 +17,11 @@ const VerificationModal: React.FC<VerificationModalProps> = ({ isOpen, email }) 
   const [cooldown, setCooldown] = useState(0);
 
   useEffect(() => {
-    let timer: any;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     if (cooldown > 0) {
       timer = setTimeout(() => setCooldown(cooldown - 1), 1000);
     }
-    return () => clearTimeout(timer);
+    return () => { if (timer) clearTimeout(timer); };
   }, [cooldown]);
 
   if (!isOpen) return null;
@@ -32,7 +32,7 @@ const VerificationModal: React.FC<VerificationModalProps> = ({ isOpen, email }) 
     try {
       await refreshUser();
       // AuthRedirect in App.tsx will handle navigation if verified
-    } catch (err: any) {
+    } catch {
       setMessage({ type: 'error', text: 'Failed to refresh status. Please try again.' });
     } finally {
       setLoading(false);
@@ -50,8 +50,8 @@ const VerificationModal: React.FC<VerificationModalProps> = ({ isOpen, email }) 
         setMessage({ type: 'success', text: 'Verification email resent! Please check your inbox.' });
         setCooldown(60); // 1 minute cooldown
       }
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || 'Failed to resend email.' });
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to resend email.' });
     } finally {
       setResending(false);
     }
@@ -61,7 +61,7 @@ const VerificationModal: React.FC<VerificationModalProps> = ({ isOpen, email }) 
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#0d1b2a]/80 backdrop-blur-sm animate-in fade-in duration-300">
       <div className="bg-[#1b263b] w-full max-w-md rounded-2xl shadow-2xl border border-[#415a77] overflow-hidden transform animate-in zoom-in-95 duration-300">
         {/* Header/Banner */}
-        <div className="bg-gradient-to-r from-[#00e5ff] to-[#80ffea] h-2 w-full"></div>
+        <div className="bg-linear-to-r from-[#00e5ff] to-[#80ffea] h-2 w-full"></div>
         
         <div className="p-8">
           <div className="flex justify-center mb-6">
@@ -85,7 +85,7 @@ const VerificationModal: React.FC<VerificationModalProps> = ({ isOpen, email }) 
                 ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400' 
                 : 'bg-red-500/10 border-red-500/50 text-red-400'
             }`}>
-              {message.type === 'success' ? <CheckCircle className="w-5 h-5 flex-shrink-0 mt-0.5" /> : <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />}
+              {message.type === 'success' ? <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" /> : <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />}
               <p className="text-sm font-medium">{message.text}</p>
             </div>
           )}

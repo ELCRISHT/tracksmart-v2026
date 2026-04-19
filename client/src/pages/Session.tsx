@@ -26,11 +26,11 @@ interface StudentState {
 }
 
 import { IssueWarningModal } from '../components/IssueWarningModal';
+import EndSessionModal from '../components/EndSessionModal';
 
 const SessionControls = () => {
   const { isMicrophoneEnabled, isCameraEnabled, isScreenShareEnabled, localParticipant } = useLocalParticipant();
   // ... other hooks and states
-  const [warningModalStudent, setWarningModalStudent] = useState<StudentState | null>(null);
 
   const toggleMic = async () => {
     await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled);
@@ -106,6 +106,10 @@ const Session: React.FC = () => {
 
   // Roster tracking for Teacher UI
   const [roster, setRoster] = useState<Record<string, StudentState>>({});
+  // Modal state for issuing warnings to a student
+  const [warningModalStudent, setWarningModalStudent] = useState<StudentState | null>(null);
+  // Modal state for confirming end session
+  const [showEndSessionModal, setShowEndSessionModal] = useState(false);
 
   // Set initial tab based on role
   useEffect(() => {
@@ -413,18 +417,22 @@ const Session: React.FC = () => {
   }
 
   const handleEndSession = () => {
-    if (window.confirm('Are you sure you want to end this session for everyone?')) {
-      isEndingRef.current = true;
-      setIsEnding(true);
-      console.info('📡 [Socket] Emitting ts:end_session');
-      socket.emit('ts:end_session');
-      setTimeout(() => {
-        if (isEndingRef.current) {
-          console.warn('📡 [Socket] End session timeout. Forcing navigation.');
-          navigate('/dashboard');
-        }
-      }, 3000);
-    }
+    // Open the custom confirmation modal instead of native confirm
+    setShowEndSessionModal(true);
+  };
+
+  const handleConfirmEndSession = () => {
+    setShowEndSessionModal(false);
+    isEndingRef.current = true;
+    setIsEnding(true);
+    console.info('📡 [Socket] Emitting ts:end_session');
+    socket.emit('ts:end_session');
+    setTimeout(() => {
+      if (isEndingRef.current) {
+        console.warn('📡 [Socket] End session timeout. Forcing navigation.');
+        navigate('/dashboard');
+      }
+    }, 3000);
   };
 
   const handleIssueWarningClick = (student: StudentState) => {
@@ -506,7 +514,7 @@ const Session: React.FC = () => {
           </div>
         </header>
         
-        <div className="bg-slate-100 dark:bg-slate-950 p-4 md:p-8 flex-1 flex flex-col overflow-hidden relative">
+        <div className="bg-slate-100 dark:bg-slate-950 p-4 md:p-8 h-[60vh] md:flex-1 flex flex-col overflow-hidden relative">
           <div className="bg-slate-900 rounded-3xl flex-1 border border-slate-800 dark:border-slate-700/50 flex items-center justify-center relative shadow-2xl overflow-hidden ring-4 ring-slate-200 dark:ring-slate-900">
             <VideoGrid isTeacher={isTeacher} />
             <SessionControls />
@@ -639,6 +647,12 @@ const Session: React.FC = () => {
           onSubmit={handleIssueWarningSubmit}
         />
       )}
+      <EndSessionModal
+        isOpen={showEndSessionModal}
+        isProcessing={isEnding}
+        onClose={() => setShowEndSessionModal(false)}
+        onConfirm={handleConfirmEndSession}
+      />
     </LiveKitRoom>
   );
 };

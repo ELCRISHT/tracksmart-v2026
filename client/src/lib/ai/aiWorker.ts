@@ -18,10 +18,8 @@ let frameCounter = 0;
 
 // Smoothing buffers for more reliable detection
 const phoneDetectionBuffer: boolean[] = [];
-const phoneCleanBuffer: boolean[] = []; // Hysteresis buffer for clearing phone detection
 const lookingAwayBuffer: boolean[] = [];
 const BUFFER_SIZE = 6; // Increased from 2 for more stability (0.2s at 30fps)
-const PHONE_CLEAR_BUFFER_SIZE = 8; // Requires 2.6s of no-phone at 30fps before clearing
 
 async function init() {
   console.log('[AI Worker] Starting initialization...');
