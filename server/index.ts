@@ -15,15 +15,24 @@ dotenv.config();
 let db: admin.firestore.Firestore | null = null;
 let firebaseReady = false;
 try {
-  const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || './firebase-service-account.json';
-  const resolvedPath = path.resolve(serviceAccountPath);
+  let serviceAccount;
   
-  // Check if file exists manually before requiring to provide better error
-  if (!fs.existsSync(resolvedPath)) {
-    throw { code: 'MODULE_NOT_FOUND', path: resolvedPath };
+  // Try reading from environment variable first (for Render deployment)
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+    console.log('\x1b[36m%s\x1b[0m', '📄 [Firebase] Loading credentials from environment variable');
+  } else {
+    // Fall back to file-based approach (for local development)
+    const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || './firebase-service-account.json';
+    const resolvedPath = path.resolve(serviceAccountPath);
+    
+    if (!fs.existsSync(resolvedPath)) {
+      throw { code: 'MODULE_NOT_FOUND', path: resolvedPath };
+    }
+    
+    serviceAccount = require(resolvedPath);
+    console.log('\x1b[36m%s\x1b[0m', '📄 [Firebase] Loading credentials from file');
   }
-
-  const serviceAccount = require(resolvedPath);
   
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
@@ -33,10 +42,12 @@ try {
   console.log('\x1b[32m%s\x1b[0m', '✅ [Firebase] Admin SDK Initialized Successfully');
 } catch (error: any) {
   console.warn('\n\x1b[41m\x1b[37m%s\x1b[0m', ' CRITICAL ERROR: FIREBASE SERVICE ACCOUNT MISSING ');
-  console.warn('\x1b[31m%s\x1b[0m', `The file was not found at: ${error.path || 'unknown path'}`);
-  console.warn('\x1b[33m%s\x1b[0m', '1. Go to Firebase Console -> Project Settings -> Service Accounts');
-  console.warn('\x1b[33m%s\x1b[0m', '2. Click "Generate new private key"');
-  console.warn('\x1b[33m%s\x1b[0m', '3. Save file as "firebase-service-account.json" inside the /server folder.\n');
+  console.warn('\x1b[31m%s\x1b[0m', `Error: ${error.message || error.path || 'unknown error'}`);
+  console.warn('\x1b[33m%s\x1b[0m', 'For Render deployment:');
+  console.warn('\x1b[33m%s\x1b[0m', '1. Go to https://dashboard.render.com');
+  console.warn('\x1b[33m%s\x1b[0m', '2. Click on tracksmart-backend service');
+  console.warn('\x1b[33m%s\x1b[0m', '3. Go to Environment tab');
+  console.warn('\x1b[33m%s\x1b[0m', '4. Add env var: FIREBASE_SERVICE_ACCOUNT_JSON = (paste entire JSON)\n');
 }
 
 const app = express();
