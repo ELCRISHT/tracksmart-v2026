@@ -53,7 +53,7 @@ try {
 const app = express();
 const allowedOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
-  .map((origin) => origin.trim())
+  .map((origin) => origin.trim().replace(/\/$/, '')) // strip trailing slash
   .filter(Boolean);
 
 app.use(cors({
