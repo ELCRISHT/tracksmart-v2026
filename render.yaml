@@ -10,7 +10,7 @@ services:
         value: production
       - key: CORS_ORIGINS
         scope: run
-        value: https://tracksmart.vercel.app
+        value: https://tracksmart-2026.vercel.app
       - key: FIREBASE_SERVICE_ACCOUNT_PATH
         scope: run
         value: ./firebase-service-account.json
