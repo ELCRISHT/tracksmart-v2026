@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -34,8 +35,8 @@ const ProfileConfig: React.FC = () => {
   const displayAvatar = avatarData || userAvatarUrl;
 
   const handleBack = () => {
-    if (user?.role === 'teacher') navigate('/dashboard');
-    else navigate('/student-dashboard');
+    if (user?.role === 'student') navigate('/student-dashboard');
+    else navigate('/dashboard');
   };
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -201,7 +202,7 @@ const ProfileConfig: React.FC = () => {
                   </button>
                 </div>
                 
-                <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium text-center uppercase tracking-widest max-w-[120px]">
+                <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium text-center uppercase tracking-widest max-w-30">
                   JPEG or PNG. Max 1MB.
                 </p>
                 <input 

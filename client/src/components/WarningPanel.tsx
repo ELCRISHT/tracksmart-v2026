@@ -1,34 +1,73 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useState } from 'react';
 import { socket } from '../lib/socket';
 import { ShieldAlert, CheckCircle, Shield, AlertTriangle } from 'lucide-react';
 
 interface WarningPanelProps {
-  score: number; // passed down or tracked here
+  score: number;
+  myIdentity: string | null; // Required to filter attention updates to self only
 }
 
-export const WarningPanel: React.FC<WarningPanelProps> = ({ score }) => {
+export const WarningPanel: React.FC<WarningPanelProps> = ({ score, myIdentity }) => {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [activeWarning, setActiveWarning] = useState<string | null>(null);
+  const [warningCount, setWarningCount] = useState(0);
 
   useEffect(() => {
-    socket.on('ts:student_alert', (data) => {
+    const handleStudentAlert = (data: any) => {
+      console.log('[WarningPanel] Received student_alert:', data.alertType, data);
+      
       if (data.alertType === 'phone_detected') {
-        setActiveWarning("Mobile Device Detected! Please put your phone away.");
+        setActiveWarning("📱 Mobile Device Detected! Please put your phone away.");
+        console.warn('[WarningPanel] 🚨 PHONE DETECTED');
       } else if (data.alertType === 'phone_cleared') {
+        console.log('[WarningPanel] ✅ Phone cleared');
         setActiveWarning(null);
+      } else if (data.alertType === 'distraction') {
+        if (data.type === 'looking_away') {
+          setActiveWarning("You're Looking Away! Focus on the screen.");
+          console.warn('[WarningPanel] LOOKING AWAY');
+        } else if (data.type === 'no_face') {
+          setActiveWarning("Face Not Detected! Stay in frame please.");
+          console.warn('[WarningPanel] NO FACE DETECTED');
+        }
+      } else if (data.alertType === 'tab_switch') {
+        setActiveWarning("Tab Switch Detected! Stay focused on this window.");
+        console.warn('[WarningPanel] TAB SWITCH DETECTED');
       }
-    });
+      
+      if (data.warningCount !== undefined) {
+        setWarningCount(data.warningCount);
+      }
+    };
 
-    socket.on('ts:warning_issued', (data) => {
+    const handleAttentionUpdate = (data: any) => {
+      // Only update warning count for THIS student, not for others in the room
+      if (myIdentity && data.studentId !== myIdentity) return;
+      
+      console.debug('[WarningPanel] attention_update:', { score: data.score, warningCount: data.warningCount, studentId: data.studentId });
+      
+      if (data.warningCount !== undefined) {
+        setWarningCount(data.warningCount);
+      }
+    };
+
+    const handleWarningIssued = (data: any) => {
+      console.warn('[WarningPanel] Teacher issued warning:', data.message);
       setActiveWarning(data.message);
       setWarnings(prev => [data.message, ...prev]);
-    });
+    };
+
+    socket.on('ts:student_alert', handleStudentAlert);
+    socket.on('ts:attention_update', handleAttentionUpdate);
+    socket.on('ts:warning_issued', handleWarningIssued);
 
     return () => {
-      socket.off('ts:student_alert');
-      socket.off('ts:warning_issued');
+      socket.off('ts:student_alert', handleStudentAlert);
+      socket.off('ts:attention_update', handleAttentionUpdate);
+      socket.off('ts:warning_issued', handleWarningIssued);
     };
-  }, []);
+  }, [myIdentity]);
 
   const handleCompliance = () => {
     setActiveWarning(null);
@@ -58,10 +97,15 @@ export const WarningPanel: React.FC<WarningPanelProps> = ({ score }) => {
   return (
     <div className="p-4 flex-1 flex flex-col w-full h-full">
       {/* Header Status Block */}
-      <div className={`border p-4 rounded-xl mb-4 text-center transition-colors duration-500 ${stateClass}`}>
+      <div className={`border p-4 rounded-xl mb-4 text-center transition-colors duration-500 relative overflow-hidden ${stateClass}`}>
+        <div className="absolute top-2 right-3 flex gap-0.5">
+           {[...Array(Math.min(5, warningCount))].map((_, i) => (
+             <span key={i} className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.5)]"></span>
+           ))}
+        </div>
         <Icon className="w-8 h-8 mx-auto mb-2 opacity-80" />
         <h3 className="font-bold mb-1">{statusText}</h3>
-        <p className="text-xs opacity-75">{subText}</p>
+        <p className="text-xs opacity-75">{subText} ({warningCount} Warnings)</p>
       </div>
       
       {/* Active Warning Action (If any) */}
@@ -99,7 +143,7 @@ export const WarningPanel: React.FC<WarningPanelProps> = ({ score }) => {
         <ul className="text-sm text-slate-400 space-y-2.5">
           <li className="flex items-center gap-2">
             <CheckCircle className="w-4 h-4 text-track-teal" />
-            Face & Gaze Tracking
+            Face &amp; Gaze Tracking
           </li>
           <li className="flex items-center gap-2">
             <CheckCircle className="w-4 h-4 text-track-teal" />

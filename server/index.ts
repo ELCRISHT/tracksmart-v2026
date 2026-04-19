@@ -6,17 +6,19 @@ import dotenv from 'dotenv';
 import { AccessToken } from 'livekit-server-sdk';
 import admin from 'firebase-admin';
 import path from 'path';
+import fs from 'fs';
 
 dotenv.config();
 
 // Initialize Firebase Admin
-let db: admin.firestore.Firestore;
+let db: admin.firestore.Firestore | null = null;
+let firebaseReady = false;
 try {
   const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || './firebase-service-account.json';
   const resolvedPath = path.resolve(serviceAccountPath);
   
   // Check if file exists manually before requiring to provide better error
-  if (!require('fs').existsSync(resolvedPath)) {
+  if (!fs.existsSync(resolvedPath)) {
     throw { code: 'MODULE_NOT_FOUND', path: resolvedPath };
   }
 
@@ -26,6 +28,7 @@ try {
     credential: admin.credential.cert(serviceAccount)
   });
   db = admin.firestore();
+  firebaseReady = true;
   console.log('\x1b[32m%s\x1b[0m', '✅ [Firebase] Admin SDK Initialized Successfully');
 } catch (error: any) {
   console.warn('\n\x1b[41m\x1b[37m%s\x1b[0m', ' CRITICAL ERROR: FIREBASE SERVICE ACCOUNT MISSING ');
@@ -33,25 +36,24 @@ try {
   console.warn('\x1b[33m%s\x1b[0m', '1. Go to Firebase Console -> Project Settings -> Service Accounts');
   console.warn('\x1b[33m%s\x1b[0m', '2. Click "Generate new private key"');
   console.warn('\x1b[33m%s\x1b[0m', '3. Save file as "firebase-service-account.json" inside the /server folder.\n');
-  
-  // Create a mock DB object that warns on use rather than crashing
-  db = {
-    collection: () => ({
-      doc: () => ({ get: async () => ({ exists: false, data: () => null }), set: async () => {}, update: async () => {} }),
-      add: async () => { console.warn('⚠️ Firestore Write Ignored: Admin SDK not initialized'); return { id: 'mock' }; },
-      where: () => ({ limit: () => ({ get: async () => ({ empty: true, docs: [] }) }) })
-    })
-  } as any;
 }
 
 const app = express();
-app.use(cors());
+const allowedOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin: allowedOrigins.length > 0 ? allowedOrigins : true,
+  credentials: true
+}));
 app.use(express.json());
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: { 
-    origin: true, // Dynamically allow whatever origin is connecting during dev
+    origin: allowedOrigins.length > 0 ? allowedOrigins : true,
     methods: ['GET', 'POST'],
     credentials: true
   },
@@ -65,9 +67,23 @@ console.log('📡 [Socket.io] Server initialized and ready for connections');
 app.get('/api/livekit/token', async (req, res) => {
   const { room, role } = req.query;
   const authHeader = req.headers.authorization;
+  const livekitApiKey = process.env.LIVEKIT_API_KEY;
+  const livekitApiSecret = process.env.LIVEKIT_API_SECRET;
+
+  if (!firebaseReady || !db) {
+    return res.status(503).json({ error: 'Server is missing Firebase Admin configuration.' });
+  }
+
+  if (!livekitApiKey || !livekitApiSecret) {
+    return res.status(503).json({ error: 'Server is missing LiveKit credentials.' });
+  }
 
   if (!room || !role) {
     return res.status(400).json({ error: 'Missing room or role parameter.' });
+  }
+
+  if (role !== 'host' && role !== 'participant') {
+    return res.status(400).json({ error: 'Invalid role parameter.' });
   }
 
   if (authHeader === 'Bearer MOCK_ADMIN' || authHeader === 'Bearer MOCK_TEACHER') {
@@ -103,8 +119,8 @@ app.get('/api/livekit/token', async (req, res) => {
     }
 
     const at = new AccessToken(
-      process.env.LIVEKIT_API_KEY || '',
-      process.env.LIVEKIT_API_SECRET || '',
+      livekitApiKey,
+      livekitApiSecret,
       {
         identity: userId, 
         name: displayName,
@@ -165,7 +181,7 @@ io.on('connection', (socket) => {
     }
   };
 
-  socket.on('join_session', ({ sessionId, role, displayName, studentId }) => {
+  socket.on('join_session', async ({ sessionId, role, displayName, studentId }) => {
     socket.join(sessionId);
     socket.data = { sessionId, role, displayName, studentId };
     
@@ -173,10 +189,48 @@ io.on('connection', (socket) => {
     if (role === 'participant') {
       if (!participantsByRoom.has(sessionId)) participantsByRoom.set(sessionId, {});
       const room = participantsByRoom.get(sessionId)!;
-      room[studentId] = { studentId, displayName, socketId: socket.id, score: 100, lastDistraction: null };
+      room[studentId] = { studentId, displayName, socketId: socket.id, score: 100, lastDistraction: null, warningCount: 0 };
+      
+      // Write participant to Firestore
+      if (db) {
+        try {
+          // Look up actual session ID from room code
+          const sessionsRef = db.collection('sessions');
+          const querySnapshot = await sessionsRef.where('room_code', '==', sessionId).limit(1).get();
+          
+          if (!querySnapshot.empty && querySnapshot.docs[0]) {
+            const actualSessionId = querySnapshot.docs[0].id;
+            await db.collection('participants').doc(studentId).set({
+              session_id: actualSessionId,
+              display_name: displayName,
+              joined_at: admin.firestore.FieldValue.serverTimestamp(),
+              attention_score: 100
+            }, { merge: true });
+            console.log(`✅ [Firestore] Participant ${studentId} (${displayName}) saved to participants collection for session ${actualSessionId}`);
+          } else {
+            console.warn(`⚠️ [Firestore] Session not found for room code: ${sessionId}`);
+          }
+        } catch (e) {
+          console.error('Failed to save participant to Firestore:', e);
+        }
+      }
       
       socket.to(sessionId).emit('ts:student_joined', { studentId, displayName, socketId: socket.id });
       logEvent(sessionId, studentId, 'student_joined', { displayName });
+    }
+
+    // Mark session as 'live' when the host (teacher) joins
+    if (role === 'host' && db) {
+      try {
+        const sessionsRef = db.collection('sessions');
+        const querySnapshot = await sessionsRef.where('room_code', '==', sessionId).limit(1).get();
+        if (!querySnapshot.empty && querySnapshot.docs[0]) {
+          await sessionsRef.doc(querySnapshot.docs[0].id).update({ status: 'live' });
+          console.log(`✅ [Firestore] Session ${sessionId} marked as LIVE`);
+        }
+      } catch (e) {
+        console.error('Failed to mark session as live:', e);
+      }
     }
 
     // Always send the full initial roster to any joining user (especially teachers joining late)
@@ -187,7 +241,13 @@ io.on('connection', (socket) => {
   socket.on('ts:distraction', (data) => {
     const { sessionId, studentId } = socket.data;
     if (sessionId) {
-      socket.to(sessionId).emit('ts:student_alert', { studentId, alertType: 'distraction', ...data });
+      const room = participantsByRoom.get(sessionId);
+      if (room && room[studentId]) {
+        room[studentId].warningCount = (room[studentId].warningCount || 0) + 1;
+      }
+      console.log(`⚠️  [Distraction] ${studentId} - type: ${data.type}, warningCount: ${room?.[studentId]?.warningCount}`);
+      // Broadcast to ALL in room (including self) so student sees their own alert
+      io.to(sessionId).emit('ts:student_alert', { studentId, alertType: 'distraction', warningCount: room?.[studentId]?.warningCount || 0, ...data });
       logEvent(sessionId, studentId, 'distraction', data);
     }
   });
@@ -195,7 +255,13 @@ io.on('connection', (socket) => {
   socket.on('ts:phone_detected', (data) => {
     const { sessionId, studentId } = socket.data;
     if (sessionId) {
-      socket.to(sessionId).emit('ts:student_alert', { studentId, alertType: 'phone_detected', ...data });
+      const room = participantsByRoom.get(sessionId);
+      if (room && room[studentId]) {
+        room[studentId].warningCount = (room[studentId].warningCount || 0) + 1;
+      }
+      console.log(`📱 [Phone Detected] ${studentId} - confidence: ${data.confidence || 'unknown'}, warningCount: ${room?.[studentId]?.warningCount}`);
+      // Broadcast to ALL in room (including self) so student sees their own alert
+      io.to(sessionId).emit('ts:student_alert', { studentId, alertType: 'phone_detected', warningCount: room?.[studentId]?.warningCount || 0, ...data });
       logEvent(sessionId, studentId, 'phone_detected', data);
     }
   });
@@ -203,15 +269,57 @@ io.on('connection', (socket) => {
   socket.on('ts:phone_cleared', (data) => {
     const { sessionId, studentId } = socket.data;
     if (sessionId) {
-      socket.to(sessionId).emit('ts:student_alert', { studentId, alertType: 'phone_cleared', ...data });
+      console.log(`✅ [Phone Cleared] ${studentId}`);
+      // Broadcast to ALL in room (including self)
+      io.to(sessionId).emit('ts:student_alert', { studentId, alertType: 'phone_cleared', ...data });
       logEvent(sessionId, studentId, 'phone_cleared', data);
     }
+  });
+
+  socket.on('ts:chat_message', async (data) => {
+    // Use socket.data as primary source; fall back to client-provided sessionId
+    // for robustness against reconnects / React StrictMode double-mount scenarios.
+    const sessionId: string = socket.data.sessionId || data.sessionId;
+    const displayName: string = socket.data.displayName || 'Unknown';
+    const role: string = socket.data.role || 'participant';
+    const studentId: string = socket.data.studentId || socket.id;
+
+    if (!sessionId || !data.text?.trim()) {
+      console.warn(`⚠️ [Chat] Dropped message — sessionId missing for socket ${socket.id}`);
+      return;
+    }
+
+    // If socket somehow isn't in the room, re-join it now
+    if (!socket.rooms.has(sessionId)) {
+      console.warn(`⚠️ [Chat] Socket ${socket.id} not in room ${sessionId} — re-joining`);
+      socket.join(sessionId);
+      // Also restore socket.data so future events work
+      socket.data = { ...socket.data, sessionId, displayName, role, studentId };
+    }
+
+    const message = {
+      id: `${socket.id}-${Date.now()}`,
+      senderId: studentId,
+      senderName: displayName,
+      role: role,
+      text: data.text.trim().substring(0, 500),
+      timestamp: Date.now()
+    };
+
+    io.to(sessionId).emit('ts:chat_message', message);
+    console.log(`💬 [Chat] ${displayName} (${role}) in ${sessionId}: "${message.text}"`);
   });
 
   socket.on('ts:tab_switch', (data) => {
     const { sessionId, studentId } = socket.data;
     if (sessionId) {
-      socket.to(sessionId).emit('ts:student_alert', { studentId, alertType: 'tab_switch', ...data });
+      const room = participantsByRoom.get(sessionId);
+      if (room && room[studentId]) {
+        room[studentId].warningCount = (room[studentId].warningCount || 0) + 1;
+      }
+      console.log(`⚠️  [Tab Switch] ${studentId} - warningCount: ${room?.[studentId]?.warningCount}`);
+      // Broadcast to ALL in room (including self)
+      io.to(sessionId).emit('ts:student_alert', { studentId, alertType: 'tab_switch', warningCount: room?.[studentId]?.warningCount || 0, ...data });
       logEvent(sessionId, studentId, 'tab_switch', data);
     }
   });
@@ -219,7 +327,9 @@ io.on('connection', (socket) => {
   socket.on('ts:tab_return', (data) => {
     const { sessionId, studentId } = socket.data;
     if (sessionId) {
-      socket.to(sessionId).emit('ts:student_alert', { studentId, alertType: 'tab_return', ...data });
+      console.log(`✅ [Tab Return] ${studentId}`);
+      // Broadcast to ALL in room (including self)
+      io.to(sessionId).emit('ts:student_alert', { studentId, alertType: 'tab_return', ...data });
       logEvent(sessionId, studentId, 'tab_return', data);
     }
   });
@@ -232,13 +342,30 @@ io.on('connection', (socket) => {
       if (room && room[studentId]) {
         room[studentId].score = data.score;
       }
-      socket.to(sessionId).emit('ts:attention_update', { studentId, ...data });
+      console.debug(`📊 [Attention] ${studentId} - score: ${data.score}%`);
+      // Log attention update to Firestore
+      logEvent(sessionId, studentId, 'attention_update', { score: data.score });
+      // Broadcast to ALL in room
+      io.to(sessionId).emit('ts:attention_update', { studentId, warningCount: room?.[studentId]?.warningCount || 0, ...data });
     }
   });
 
   socket.on('ts:issue_warning', (data) => {
-    const { sessionId } = socket.data;
+    const { sessionId, role, studentId } = socket.data;
     if (sessionId) {
+      // Increment warning count manually issued by teacher
+      const room = participantsByRoom.get(sessionId);
+      if (room && data.studentId && room[data.studentId]) {
+        room[data.studentId].warningCount = (room[data.studentId].warningCount || 0) + 1;
+        // Broadcast update
+        io.to(sessionId).emit('ts:attention_update', { 
+           studentId: data.studentId, 
+           score: room[data.studentId].score, 
+           warningCount: room[data.studentId].warningCount 
+        });
+      }
+      // Log warning to Firestore
+      logEvent(sessionId, data.studentId, 'warning_issued', { message: data.message });
       // Broadcast specifically to the targeted student
       io.to(data.studentSocketId).emit('ts:warning_issued', { message: data.message });
     }
@@ -275,6 +402,19 @@ io.on('connection', (socket) => {
       if (room && room[studentId]) {
         delete room[studentId];
         if (Object.keys(room).length === 0) participantsByRoom.delete(sessionId);
+      }
+      
+      // Update participant left_at in Firestore
+      if (db) {
+        try {
+          db.collection('participants').doc(studentId).update({
+            left_at: admin.firestore.FieldValue.serverTimestamp()
+          }).catch(e => {
+            console.error('Failed to update participant left_at:', e);
+          });
+        } catch (e) {
+          console.error('Failed to update participant on disconnect:', e);
+        }
       }
       
       socket.to(sessionId).emit('ts:student_left', { studentId });

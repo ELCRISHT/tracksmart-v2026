@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Video, Clock, LayoutDashboard, LogOut, Shield, ChevronDown, Link, Copy, Check, X, Settings } from 'lucide-react';
+import { Plus, Video, Clock, LayoutDashboard, LogOut, Shield, ChevronDown, Link, Copy, Check, X, Settings, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
-import { collection, query, where, getDocs, addDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, deleteDoc, doc } from 'firebase/firestore';
 
 const Dashboard: React.FC = () => {
   const { user, signOut, userRole, userFullName } = useAuth();
   const navigate = useNavigate();
   const [isCreating, setIsCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteConfirmModal, setDeleteConfirmModal] = useState<{ id: string; title: string } | null>(null);
   const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -128,6 +130,39 @@ const Dashboard: React.FC = () => {
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error('Failed to copy!', err);
+    }
+  };
+
+  const handleDeleteSession = async (sessionId: string, sessionTitle: string) => {
+    setDeleteConfirmModal({ id: sessionId, title: sessionTitle });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirmModal) return;
+
+    try {
+      setDeletingId(deleteConfirmModal.id);
+      console.log('🗑️ Attempting to delete session:', deleteConfirmModal.id);
+      await deleteDoc(doc(db, 'sessions', deleteConfirmModal.id));
+      console.log('✅ Session deleted successfully from Firestore');
+      setSessions(prev => prev.filter(s => s.id !== deleteConfirmModal.id));
+      setError(null);
+      setDeleteConfirmModal(null);
+    } catch (err: any) {
+      console.error('❌ Failed to delete session:', err);
+      console.error('Error code:', err.code);
+      console.error('Error message:', err.message);
+      
+      let errorMsg = 'Failed to delete session. Please try again.';
+      if (err.code === 'permission-denied') {
+        errorMsg = 'Permission denied. Make sure you are the session creator. Did you deploy the Firestore rules?';
+      } else if (err.code === 'not-found') {
+        errorMsg = 'Session not found. It may have already been deleted.';
+      }
+      
+      setError(errorMsg);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -313,6 +348,18 @@ const Dashboard: React.FC = () => {
                   >
                     View Report
                   </button>
+                  <button
+                    onClick={() => handleDeleteSession(session.id, session.title)}
+                    disabled={deletingId === session.id}
+                    className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 hover:bg-red-100 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 p-2.5 rounded-lg transition-colors shadow-sm active:scale-95 disabled:opacity-50 flex items-center justify-center"
+                    title="Delete session"
+                  >
+                    {deletingId === session.id ? (
+                      <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
+                  </button>
                 </div>
               </div>
             ))}
@@ -345,7 +392,7 @@ const Dashboard: React.FC = () => {
                 </span>
                 <button
                   onClick={copyToClipboard}
-                  className={`flex-shrink-0 p-2 rounded-lg transition-all ${
+                  className={`shrink-0 p-2 rounded-lg transition-all ${
                     copied 
                       ? 'bg-emerald-500 text-white shadow-md shadow-emerald-200' 
                       : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400'
@@ -369,6 +416,49 @@ const Dashboard: React.FC = () => {
         </div>
       )}
 
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden transform animate-in zoom-in-95 duration-300">
+            <div className="p-6">
+              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/30 mx-auto mb-4">
+                <Trash2 className="w-6 h-6 text-red-600 dark:text-red-400" />
+              </div>
+
+              <h2 className="text-xl font-bold text-center text-slate-900 dark:text-slate-100 mb-2">Delete session?</h2>
+              
+              <p className="text-slate-600 dark:text-slate-400 text-center text-sm mb-6 leading-relaxed">
+                Are you sure you want to delete <span className="font-semibold text-slate-900 dark:text-slate-100">"{deleteConfirmModal.title}"</span>? 
+                This action cannot be undone.
+              </p>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setDeleteConfirmModal(null)}
+                  disabled={deletingId !== null}
+                  className="flex-1 px-4 py-3 rounded-lg font-semibold transition-colors border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  disabled={deletingId !== null}
+                  className="flex-1 px-4 py-3 rounded-lg font-semibold transition-colors bg-red-600 hover:bg-red-700 dark:bg-red-600 dark:hover:bg-red-700 text-white disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {deletingId ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    'Delete'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

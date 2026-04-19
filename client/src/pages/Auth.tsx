@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Mail, Lock, User as UserIcon, Shield, GraduationCap, AlertCircle, Loader2 } from 'lucide-react';
@@ -7,7 +8,7 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswor
 import { doc, setDoc } from 'firebase/firestore';
 import VerificationModal from '../components/VerificationModal';
 
-type Role = 'teacher' | 'student' | 'admin';
+type Role = 'teacher' | 'student';
 
 const Auth: React.FC = () => {
   const navigate = useNavigate();
@@ -113,14 +114,14 @@ const Auth: React.FC = () => {
 
         {error && (
           <div className="mb-6 p-4 rounded-lg bg-track-alert-red/10 border border-track-alert-red flex items-start gap-3 text-track-alert-red">
-            <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
             <p className="text-sm font-medium">{error}</p>
           </div>
         )}
 
         {resetSent && (
           <div className="mb-6 p-4 rounded-lg bg-emerald-50 border border-emerald-200 flex items-start gap-3 text-emerald-600">
-            <Shield className="w-5 h-5 flex-shrink-0 mt-0.5" />
+            <Shield className="w-5 h-5 shrink-0 mt-0.5" />
             <p className="text-sm font-medium">Password reset email sent! Check your inbox.</p>
           </div>
         )}
@@ -188,7 +189,7 @@ const Auth: React.FC = () => {
           {!isSignIn && (
             <div className="pt-2">
               <label className="block text-sm font-semibold text-slate-700 mb-2 ml-1">Account Role</label>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
                   onClick={() => setRole('student')}
@@ -205,22 +206,14 @@ const Auth: React.FC = () => {
                   <GraduationCap className="w-5 h-5 mb-1" />
                   <span className="text-xs font-bold tracking-tight">Teacher</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setRole('admin')}
-                  className={`flex flex-col items-center justify-center py-3 border rounded-xl transition-all ${role === 'admin' ? 'bg-slate-900 border-slate-900 text-white ring-1 ring-slate-900 shadow-sm shadow-slate-900/40' : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300'}`}
-                >
-                  <Shield className="w-5 h-5 mb-1" />
-                  <span className="text-xs font-bold tracking-tight">Admin</span>
-                </button>
               </div>
             </div>
           )}
 
           <button
             type="submit"
-            disabled={loading}
             className="w-full mt-4 bg-track-navy hover:bg-track-hover text-white font-bold py-3.5 rounded-xl transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2"
+            disabled={loading}
           >
             {loading && <Loader2 className="w-5 h-5 animate-spin" />}
             {!loading && (isSignIn ? 'Sign In' : 'Create Account')}

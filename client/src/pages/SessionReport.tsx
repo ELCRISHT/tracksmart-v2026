@@ -16,6 +16,7 @@ interface StudentReport {
   avgScore: number;
   timeAwayMs: number;
   warnings: number;
+  events?: Array<{ type: string; timestamp: any; details?: string }>;
 }
 
 const SessionReport: React.FC = () => {
@@ -45,7 +46,19 @@ const SessionReport: React.FC = () => {
         const sData = sessionDoc.data() as SessionData;
         setSession(sData);
 
-        // 2. Fetch all events for this session
+        // 2. Fetch participants to get student names
+        const participantsQuery = query(
+          collection(db, 'participants'),
+          where('session_id', '==', id)
+        );
+        const participantsSnapshot = await getDocs(participantsQuery);
+        const participantMap: Record<string, string> = {};
+        participantsSnapshot.docs.forEach(doc => {
+          const data = doc.data();
+          participantMap[doc.id] = data.display_name || data.name || 'Unknown Student';
+        });
+
+        // 3. Fetch all events for this session
         const eventsQuery = query(
           collection(db, 'session_events'),
           where('session_id', '==', id)
@@ -53,13 +66,14 @@ const SessionReport: React.FC = () => {
         const eventsSnapshot = await getDocs(eventsQuery);
         const events = eventsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-        // 3. Process Data
+        // 4. Process Data
         const studentMap: Record<string, { 
           name: string; 
           scores: number[]; 
           warnings: number; 
           awayStart: number | null; 
-          totalAwayMs: number 
+          totalAwayMs: number;
+          events: Array<{ type: string; timestamp: any; details?: string }>;
         }> = {};
 
         events.forEach((event: any) => {
@@ -67,11 +81,12 @@ const SessionReport: React.FC = () => {
           
           if (!studentMap[event.student_id]) {
             studentMap[event.student_id] = { 
-              name: event.payload?.displayName || 'Unknown Student', 
+              name: participantMap[event.student_id] || event.payload?.displayName || 'Unknown Student', 
               scores: [], 
               warnings: 0, 
               awayStart: null, 
-              totalAwayMs: 0 
+              totalAwayMs: 0,
+              events: []
             };
           }
 
@@ -79,16 +94,41 @@ const SessionReport: React.FC = () => {
           
           if (event.event_type === 'attention_update' && event.payload?.score !== undefined) {
             s.scores.push(event.payload.score);
-          } else if (event.event_type === 'warning_issued' || event.event_type === 'phone_detected') {
+            s.events.push({
+              type: 'Attention Update',
+              timestamp: event.timestamp,
+              details: `Score: ${event.payload.score}%`
+            });
+          } else if (event.event_type === 'warning_issued') {
             s.warnings++;
+            s.events.push({
+              type: 'Warning Issued',
+              timestamp: event.timestamp,
+              details: event.payload?.message || 'Warning issued'
+            });
+          } else if (event.event_type === 'phone_detected') {
+            s.warnings++;
+            s.events.push({
+              type: 'Phone Detected',
+              timestamp: event.timestamp,
+              details: 'Mobile device detected'
+            });
           } else if (event.event_type === 'tab_switch' || event.event_type === 'distraction') {
             s.awayStart = event.timestamp?.toMillis ? event.timestamp.toMillis() : Date.now();
+            s.events.push({
+              type: event.event_type === 'tab_switch' ? 'Tab Switch' : 'Distraction Detected',
+              timestamp: event.timestamp
+            });
           } else if (event.event_type === 'tab_return' || event.event_type === 'student_joined') {
             if (s.awayStart) {
               const end = event.timestamp?.toMillis ? event.timestamp.toMillis() : Date.now();
               s.totalAwayMs += (end - s.awayStart);
               s.awayStart = null;
             }
+            s.events.push({
+              type: event.event_type === 'tab_return' ? 'Tab Return' : 'Student Joined',
+              timestamp: event.timestamp
+            });
           }
         });
 
@@ -97,7 +137,8 @@ const SessionReport: React.FC = () => {
           name: data.name,
           avgScore: data.scores.length > 0 ? Math.round(data.scores.reduce((a, b) => a + b, 0) / data.scores.length) : 100,
           timeAwayMs: data.totalAwayMs,
-          warnings: data.warnings
+          warnings: data.warnings,
+          events: data.events
         }));
 
         setReports(processedReports);
@@ -123,7 +164,7 @@ const SessionReport: React.FC = () => {
     fetchData();
   }, [id, navigate]);
 
-  const exportCSV = () => {
+  const exportSummaryCSV = () => {
     const headers = ['Student Name', 'Avg Attention (%)', 'Time Away (s)', 'Warnings'];
     const rows = reports.map(r => [
       r.name,
@@ -141,11 +182,82 @@ const SessionReport: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `TrackSmart_Report_${session?.room_code || id}.csv`);
+    link.setAttribute('download', `TrackSmart_Summary_Report_${session?.room_code || id}.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const exportIndividualReport = (student: StudentReport) => {
+    const timestamp = session?.created_at 
+      ? new Date(session.created_at.toMillis ? session.created_at.toMillis() : session.created_at).toLocaleString()
+      : new Date().toLocaleString();
+
+    // Calculate warning breakdown
+    const warningEvents = student.events?.filter(e => e.type.includes('Warning') || e.type === 'Phone Detected' || e.type === 'Distraction Detected') || [];
+    const attentionUpdates = student.events?.filter(e => e.type === 'Attention Update') || [];
+    const minScore = attentionUpdates.length > 0 
+      ? Math.min(...attentionUpdates.map(e => {
+          const match = e.details?.match(/Score: (\d+)%/);
+          return match ? parseInt(match[1]) : 100;
+        }))
+      : 100;
+    const maxScore = attentionUpdates.length > 0
+      ? Math.max(...attentionUpdates.map(e => {
+          const match = e.details?.match(/Score: (\d+)%/);
+          return match ? parseInt(match[1]) : 100;
+        }))
+      : 100;
+
+    // Create CSV content
+    const csvLines: string[] = [];
+    csvLines.push(`TrackSmart Individual Student Report`);
+    csvLines.push(`Session: ${session?.title || 'Unknown'}`);
+    csvLines.push(`Date: ${timestamp}`);
+    csvLines.push(`Student: ${student.name}`);
+    csvLines.push(`Room Code: ${session?.room_code || 'N/A'}`);
+    csvLines.push(``);
+    csvLines.push(`PERFORMANCE SUMMARY:`);
+    csvLines.push(`Average Attention Score: ${student.avgScore}%`);
+    csvLines.push(`Attention Score Range: ${minScore}% - ${maxScore}%`);
+    csvLines.push(`Total Attention Measurements: ${attentionUpdates.length}`);
+    csvLines.push(``);
+    csvLines.push(`COMPLIANCE SUMMARY:`);
+    csvLines.push(`Total Warnings Issued: ${student.warnings}`);
+    csvLines.push(`Total Time Away: ${Math.floor(student.timeAwayMs / 60000)}m ${Math.round((student.timeAwayMs % 60000) / 1000)}s`);
+    csvLines.push(`Warning Events: ${warningEvents.length}`);
+    csvLines.push(``);
+    csvLines.push(`DETAILED EVENT LOG:`);
+    csvLines.push(`Timestamp,Event Type,Details`);
+
+    if (student.events && student.events.length > 0) {
+      student.events.forEach(event => {
+        const eventTime = event.timestamp?.toMillis 
+          ? new Date(event.timestamp.toMillis()).toLocaleTimeString()
+          : new Date(event.timestamp).toLocaleTimeString();
+        const details = event.details ? `"${event.details}"` : '';
+        csvLines.push(`${eventTime},${event.type},${details}`);
+      });
+    } else {
+      csvLines.push(`No events recorded`);
+    }
+
+    const csvContent = csvLines.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `TrackSmart_Report_${student.name}_${session?.room_code || id}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const exportSummaryPDF = () => {
+    // Create a simple text-based PDF export (fallback if PDF library not available)
+    exportSummaryCSV();
   };
 
   if (loading) {
@@ -179,11 +291,11 @@ const SessionReport: React.FC = () => {
             </p>
           </div>
           <button 
-            onClick={exportCSV}
+            onClick={exportSummaryCSV}
             className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-lg font-medium hover:bg-slate-50 transition-colors shadow-sm text-sm"
           >
             <Download className="w-4 h-4" />
-            Export CSV
+            Export Summary
           </button>
         </div>
 
@@ -227,12 +339,13 @@ const SessionReport: React.FC = () => {
                 <th className="p-4">Avg Score</th>
                 <th className="p-4">Time Away</th>
                 <th className="p-4">Warnings</th>
+                <th className="p-4 text-center">Report</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm">
               {reports.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="p-8 text-center text-slate-400 font-medium">No student data recorded for this session.</td>
+                  <td colSpan={5} className="p-8 text-center text-slate-400 font-medium">No student data recorded for this session.</td>
                 </tr>
               ) : reports.map(report => (
                 <tr key={report.id} className="hover:bg-slate-50">
@@ -255,6 +368,16 @@ const SessionReport: React.FC = () => {
                   <td className={`p-4 font-bold flex items-center gap-1.5 ${report.warnings > 0 ? 'text-track-alert-red' : 'text-slate-500'}`}>
                     {report.warnings > 0 && <AlertTriangle className="w-3.5 h-3.5" />} 
                     {report.warnings}
+                  </td>
+                  <td className="p-4 text-center">
+                    <button
+                      onClick={() => exportIndividualReport(report)}
+                      className="inline-flex items-center gap-1.5 text-track-teal hover:text-track-teal/80 transition-colors text-sm font-medium"
+                      title={`Download report for ${report.name}`}
+                    >
+                      <Download className="w-4 h-4" />
+                      <span className="hidden sm:inline">Download</span>
+                    </button>
                   </td>
                 </tr>
               ))}

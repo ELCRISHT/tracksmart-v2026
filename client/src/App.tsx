@@ -1,4 +1,5 @@
 import React from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Auth from './pages/Auth';
@@ -17,8 +18,8 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode,
     return <div className="flex items-center justify-center min-h-screen text-slate-500 font-medium tracking-tight">Checking credentials...</div>;
   }
   
-  // Custom bypass check for mock users or unverified accounts
-  if (!user && !userRole) {
+  // Require both authenticated user and resolved role.
+  if (!user || !userRole) {
     return <Navigate to="/auth" replace />;
   }
 
@@ -28,7 +29,7 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode,
   }
 
   // Reject access if the user's role isn't allowed for this specific route
-  if (allowedRoles && userRole && !allowedRoles.includes(userRole)) {
+    if (allowedRoles && !allowedRoles.includes(userRole)) {
      // Kick teachers to dashboard, students to join
      return <Navigate to="/" replace />;
   }
@@ -115,6 +116,20 @@ function App() {
                 </ProtectedRoute>
               } 
             />
+
+            {/* Catch-all 404 */}
+            <Route path="*" element={
+              <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 text-slate-700 gap-4">
+                <div className="w-16 h-16 bg-track-navy/5 rounded-2xl flex items-center justify-center">
+                  <AlertTriangle className="w-8 h-8 text-track-navy/40" />
+                </div>
+                <h1 className="text-4xl font-black text-track-navy tracking-tight">404</h1>
+                <p className="text-slate-500 font-medium">This page doesn't exist.</p>
+                <a href="/" className="mt-2 bg-track-teal hover:bg-teal-400 text-slate-900 font-bold py-2.5 px-6 rounded-xl transition-all shadow-sm active:scale-95">
+                  Go Home
+                </a>
+              </div>
+            } />
           </Routes>
         </div>
       </AuthProvider>

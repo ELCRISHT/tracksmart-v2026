@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -148,7 +149,7 @@ const StudentDashboard: React.FC = () => {
             <Settings className="w-5 h-5" />
           </button>
           <button 
-            onClick={signOut}
+            onClick={() => { signOut(); navigate('/auth'); }}
             className="flex items-center gap-2 text-slate-400 hover:text-track-alert-red transition-colors font-bold text-sm bg-slate-50 hover:bg-red-50 p-2 rounded-xl border border-transparent"
           >
             <span className="hidden sm:inline">Sign Out</span>
@@ -162,7 +163,7 @@ const StudentDashboard: React.FC = () => {
         {/* Welcome & Join Row */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Welcome Card */}
-          <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden flex flex-col md:flex-row items-center justify-between min-h-[220px] gap-6">
+          <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden flex flex-col md:flex-row items-center justify-between min-h-55 gap-6">
             <div className="absolute top-0 right-0 w-48 h-48 bg-track-teal/5 dark:bg-track-teal/10 rounded-bl-[100px] -z-10"></div>
             <div className="flex-1">
               <div className="flex items-center gap-4 mb-4">
@@ -178,13 +179,13 @@ const StudentDashboard: React.FC = () => {
           </div>
 
           {/* Join Session Card */}
-          <div className="bg-slate-900 rounded-3xl p-8 border border-slate-800 shadow-xl shadow-track-navy/20 text-white flex flex-col justify-center transform transition-transform hover:scale-[1.01]">
-            <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
+          <div className="bg-slate-900 rounded-3xl p-6 md:p-8 border border-slate-800 shadow-xl shadow-track-navy/20 text-white flex flex-col justify-center transform transition-transform hover:scale-[1.01]">
+            <h3 className="text-lg md:text-xl font-bold mb-4 md:mb-6 flex items-center gap-2">
               <Hash className="text-track-teal w-5 h-5" />
               Join a Class
             </h3>
             
-            <form onSubmit={handleJoin} className="space-y-4">
+            <form onSubmit={handleJoin} className="space-y-3 md:space-y-4">
               <div className="relative">
                 <input
                   type="text"
@@ -192,7 +193,7 @@ const StudentDashboard: React.FC = () => {
                   maxLength={6}
                   value={roomCode}
                   onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                  className="w-full pl-4 pr-4 py-4 bg-white/5 border border-white/10 rounded-2xl focus:ring-2 focus:ring-track-teal focus:border-track-teal outline-none transition-all placeholder:text-slate-600 font-mono tracking-[0.3em] uppercase font-bold text-2xl text-center"
+                  className="w-full pl-4 pr-4 py-3 md:py-4 bg-white/5 border border-white/10 rounded-2xl focus:ring-2 focus:ring-track-teal focus:border-track-teal outline-none transition-all placeholder:text-slate-600 font-mono tracking-[0.3em] uppercase font-bold text-xl md:text-2xl text-center"
                   placeholder="CODE"
                 />
               </div>
@@ -204,7 +205,7 @@ const StudentDashboard: React.FC = () => {
               <button
                 type="submit"
                 disabled={joining || roomCode.length < 6}
-                className="w-full bg-track-teal hover:bg-teal-400 text-slate-900 font-bold py-4 rounded-2xl transition-all shadow-lg shadow-track-teal/20 active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                className="w-full bg-track-teal hover:bg-teal-400 text-slate-900 font-bold py-3 md:py-4 rounded-2xl transition-all shadow-lg shadow-track-teal/20 active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 text-sm md:text-base mt-4 md:mt-6"
               >
                 {joining ? <Loader2 className="animate-spin w-5 h-5 text-slate-900" /> : 'Enter Room'}
               </button>
