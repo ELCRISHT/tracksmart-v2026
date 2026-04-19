@@ -3,6 +3,8 @@
     "module": "commonjs",
     "moduleResolution": "node",
     "target": "es2022",
+    "outDir": "./dist",
+    "rootDir": "./",
     "esModuleInterop": true,
     "sourceMap": true,
     "declaration": true,

@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: tracksmart-backend
+    runtime: node
+    plan: free
+    buildCommand: cd server && npm install && npm run build
+    startCommand: cd server && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CORS_ORIGINS
+        scope: run
+        value: https://tracksmart.vercel.app
+      - key: FIREBASE_SERVICE_ACCOUNT_PATH
+        scope: run
+        value: ./firebase-service-account.json
