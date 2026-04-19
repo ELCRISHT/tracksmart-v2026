@@ -170,7 +170,8 @@ const Session: React.FC = () => {
           }
         }
 
-        const fetchResponsePromise = fetch(`http://localhost:3001/api/livekit/token?room=${code}&role=${role}`, {
+        const socketUrl = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
+        const fetchResponsePromise = fetch(`${socketUrl}/api/livekit/token?room=${code}&role=${role}`, {
           headers: { 'Authorization': authHeader }
         });
         
