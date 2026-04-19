@@ -7,6 +7,7 @@ import { AccessToken } from 'livekit-server-sdk';
 import admin from 'firebase-admin';
 import path from 'path';
 import fs from 'fs';
+import type { Request, Response } from 'express';
 
 dotenv.config();
 
@@ -64,7 +65,7 @@ console.log('📡 [Socket.io] Server initialized and ready for connections');
 
 /* --- LIVEKIT TOKEN GENERATION --- */
 
-app.get('/api/livekit/token', async (req, res) => {
+app.get('/api/livekit/token', async (req: Request, res: Response) => {
   const { room, role } = req.query;
   const authHeader = req.headers.authorization;
   const livekitApiKey = process.env.LIVEKIT_API_KEY;
