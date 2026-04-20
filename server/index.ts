@@ -64,42 +64,34 @@ if (process.env.NODE_ENV !== 'production') {
 
 console.log('🔒 [CORS] Initialized with origins:', allowedOrigins.length > 0 ? allowedOrigins : 'All (Reflective)');
 
-app.use(cors({
-  origin: (origin, callback) => {
-    // allow requests with no origin (like mobile apps or curl)
-    if (!origin) return callback(null, true);
-    
-    // Normalize origins for comparison (strip trailing slashes)
-    const normalizedOrigin = origin.replace(/\/$/, '');
-    const isAllowed = allowedOrigins.length === 0 || allowedOrigins.includes(normalizedOrigin);
-    
-    if (isAllowed) {
-      callback(null, true);
-    } else {
-      console.warn(`🚫 [CORS] Blocked request from unauthorized origin: ${origin}`);
-      // Return null, false to reject without throwing an internal server error
-      callback(null, false);
-    }
-  },
-  credentials: true
-}));
+// Manual CORS Middleware
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  // Normalize and check if allowed
+  const normalizedOrigin = origin ? origin.replace(/\/$/, '') : null;
+  const isAllowed = !normalizedOrigin || allowedOrigins.length === 0 || allowedOrigins.includes(normalizedOrigin);
+
+  if (isAllowed && origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
+    res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,content-type,Authorization');
+    return res.sendStatus(200);
+  }
+  
+  next();
+});
 app.use(express.json());
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: { 
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      const normalizedOrigin = origin.replace(/\/$/, '');
-      const isAllowed = allowedOrigins.length === 0 || allowedOrigins.includes(normalizedOrigin);
-      
-      if (isAllowed) {
-        callback(null, true);
-      } else {
-        console.warn(`🚫 [Socket CORS] Blocked request from unauthorized origin: ${origin}`);
-        callback(null, false);
-      }
-    },
+    origin: true, // Reflective - allows any origin that sends a request
     methods: ['GET', 'POST'],
     credentials: true
   },
