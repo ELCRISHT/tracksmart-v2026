@@ -51,48 +51,58 @@ try {
 }
 
 const app = express();
-const allowedOrigins = (process.env.CORS_ORIGINS || '')
+
+// ── CORS ─────────────────────────────────────────────────────────────────────
+// Hardcoded production origins plus any extras injected via the CORS_ORIGINS
+// environment variable (comma-separated). This list is used by both the Express
+// cors() middleware and the Socket.IO CORS handler so they stay in sync.
+const STATIC_ORIGINS = [
+  'https://tracksmart-2026.vercel.app',
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+];
+
+const dynamicOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
-  .map((origin) => origin.trim().replace(/\/$/, '')) // strip trailing slash
+  .map((o) => o.trim().replace(/\/$/, ''))
   .filter(Boolean);
 
-// In development, ensure local Vite defaults are allowed
-if (process.env.NODE_ENV !== 'production') {
-  if (!allowedOrigins.includes('http://localhost:5173')) allowedOrigins.push('http://localhost:5173');
-  if (!allowedOrigins.includes('http://127.0.0.1:5173')) allowedOrigins.push('http://127.0.0.1:5173');
-}
+const allowedOrigins = Array.from(new Set([...STATIC_ORIGINS, ...dynamicOrigins]));
 
-console.log('🔒 [CORS] Initialized with origins:', allowedOrigins.length > 0 ? allowedOrigins : 'All (Reflective)');
+console.log('🔒 [CORS] Allowed origins:', allowedOrigins);
 
-// Universal Reflective CORS Middleware
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  
-  if (origin) {
-    // Reflect the request origin back to the browser
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-  }
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    // Requests with no origin (curl, Postman, server-to-server) are allowed.
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin.replace(/\/$/, ''))) {
+      return callback(null, true);
+    }
+    console.warn(`🚫 [CORS] Rejected origin: ${origin}`);
+    return callback(new Error(`CORS: origin "${origin}" not allowed`));
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  credentials: true,
+  optionsSuccessStatus: 200, // Some browsers (IE11) choke on 204
+};
 
-  // Handle preflight (OPTIONS) requests immediately
-  if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
-    res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,content-type,Authorization');
-    return res.sendStatus(200);
-  }
-  
-  next();
-});
+// Apply CORS FIRST — before every other middleware and every route.
+app.use(cors(corsOptions));
+// Pre-flight: respond to every OPTIONS request immediately.
+app.options('*', cors(corsOptions));
+
 app.use(express.json());
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
-  cors: { 
-    origin: true, // Reflective - allows any origin that sends a request
+  cors: {
+    origin: allowedOrigins,
     methods: ['GET', 'POST'],
-    credentials: true
+    credentials: true,
   },
-  allowEIO3: true // Allow compatibility with older clients if needed
+  allowEIO3: true, // backward compat with EIO v3 clients
 });
 
 console.log('📡 [Socket.io] Server initialized and ready for connections');
