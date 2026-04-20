@@ -64,20 +64,17 @@ if (process.env.NODE_ENV !== 'production') {
 
 console.log('🔒 [CORS] Initialized with origins:', allowedOrigins.length > 0 ? allowedOrigins : 'All (Reflective)');
 
-// Manual CORS Middleware
+// Universal Reflective CORS Middleware
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   
-  // Normalize and check if allowed
-  const normalizedOrigin = origin ? origin.replace(/\/$/, '') : null;
-  const isAllowed = !normalizedOrigin || allowedOrigins.length === 0 || allowedOrigins.includes(normalizedOrigin);
-
-  if (isAllowed && origin) {
+  if (origin) {
+    // Reflect the request origin back to the browser
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
   }
 
-  // Handle preflight
+  // Handle preflight (OPTIONS) requests immediately
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
     res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,content-type,Authorization');
