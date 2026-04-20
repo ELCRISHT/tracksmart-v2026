@@ -143,7 +143,8 @@ const Session: React.FC = () => {
     const onConnect = () => console.log('📡 [Socket] Connected successfully!');
     const onConnectError = (err: any) => {
       console.error('❌ [Socket] Connection error:', err.message);
-      setErrorMsg(`Real-time connection failed: ${err.message}. Please check if the server is running on port 3001.`);
+      setErrorMsg(`Real-time connection failed: ${err.message}. Please check if the server is running at ${socketUrl}`);
+      setStatus('error');
     };
 
     socket.on('connect', onConnect);

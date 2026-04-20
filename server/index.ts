@@ -56,8 +56,26 @@ const allowedOrigins = (process.env.CORS_ORIGINS || '')
   .map((origin) => origin.trim().replace(/\/$/, '')) // strip trailing slash
   .filter(Boolean);
 
+// In development, ensure local Vite defaults are allowed
+if (process.env.NODE_ENV !== 'production') {
+  if (!allowedOrigins.includes('http://localhost:5173')) allowedOrigins.push('http://localhost:5173');
+  if (!allowedOrigins.includes('http://127.0.0.1:5173')) allowedOrigins.push('http://127.0.0.1:5173');
+}
+
+console.log('🔒 [CORS] Initialized with origins:', allowedOrigins.length > 0 ? allowedOrigins : 'All (Reflective)');
+
 app.use(cors({
-  origin: allowedOrigins.length > 0 ? allowedOrigins : true,
+  origin: (origin, callback) => {
+    // allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.warn(`🚫 [CORS] Blocked request from unauthorized origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
 app.use(express.json());
