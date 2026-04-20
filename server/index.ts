@@ -91,7 +91,8 @@ const corsOptions: cors.CorsOptions = {
 // Apply CORS FIRST — before every other middleware and every route.
 app.use(cors(corsOptions));
 // Pre-flight: respond to every OPTIONS request immediately.
-app.options('*', cors(corsOptions));
+// Note: Express v5 requires '/(.*) instead of '*' for catch-all routes.
+app.options('/(.*)', cors(corsOptions));
 
 app.use(express.json());
 
