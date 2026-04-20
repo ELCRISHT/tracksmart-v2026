@@ -69,11 +69,16 @@ app.use(cors({
     // allow requests with no origin (like mobile apps or curl)
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+    // Normalize origins for comparison (strip trailing slashes)
+    const normalizedOrigin = origin.replace(/\/$/, '');
+    const isAllowed = allowedOrigins.length === 0 || allowedOrigins.includes(normalizedOrigin);
+    
+    if (isAllowed) {
       callback(null, true);
     } else {
       console.warn(`🚫 [CORS] Blocked request from unauthorized origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
+      // Return null, false to reject without throwing an internal server error
+      callback(null, false);
     }
   },
   credentials: true
@@ -84,11 +89,15 @@ const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: { 
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+      if (!origin) return callback(null, true);
+      const normalizedOrigin = origin.replace(/\/$/, '');
+      const isAllowed = allowedOrigins.length === 0 || allowedOrigins.includes(normalizedOrigin);
+      
+      if (isAllowed) {
         callback(null, true);
       } else {
         console.warn(`🚫 [Socket CORS] Blocked request from unauthorized origin: ${origin}`);
-        callback(new Error('Not allowed by CORS'));
+        callback(null, false);
       }
     },
     methods: ['GET', 'POST'],
