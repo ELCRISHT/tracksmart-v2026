@@ -83,7 +83,14 @@ app.use(express.json());
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: { 
-    origin: allowedOrigins.length > 0 ? allowedOrigins : true,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.warn(`🚫 [Socket CORS] Blocked request from unauthorized origin: ${origin}`);
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     methods: ['GET', 'POST'],
     credentials: true
   },

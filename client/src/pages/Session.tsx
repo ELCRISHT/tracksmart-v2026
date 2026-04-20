@@ -134,12 +134,9 @@ const Session: React.FC = () => {
   useEffect(() => {
     const socketUrl = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
     
-    // 1. Connect to socket with logging
-    if (!socket.connected) {
-      console.info('📡 [Socket] Attempting connection to:', socketUrl);
-      socket.connect();
-    }
-
+    // 1. We will connect to the socket ONLY after the token fetch succeeds
+    // to avoid timeouts while the server is cold-booting.
+    
     const onConnect = () => console.log('📡 [Socket] Connected successfully!');
     const onConnectError = (err: any) => {
       console.error('❌ [Socket] Connection error:', err.message);
@@ -183,12 +180,21 @@ const Session: React.FC = () => {
         const data = await response.json();
         
         if (response.ok && data.token) {
+          // Now that we know the server is awake, connect the socket
           if (!socket.connected) {
-             console.warn('📡 [Socket] Not connected yet, waiting...');
+             console.info('📡 [Socket] Connecting to:', socketUrl);
+             socket.connect();
+             
+             console.warn('📡 [Socket] Waiting for connection...');
              await new Promise<void>(resolve => {
-                const handler = () => resolve();
+                const handler = () => {
+                  socket.off('connect', handler);
+                  socket.off('connect_error', handler);
+                  resolve();
+                };
                 socket.once('connect', handler);
-                setTimeout(handler, 2000);
+                socket.once('connect_error', handler);
+                setTimeout(handler, 5000); // 5s timeout for the socket handshake itself
              });
           }
 
